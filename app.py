@@ -3,6 +3,13 @@ import pandas as pd
 from datetime import datetime
 import urllib.parse
 from fpdf import FPDF
+import pytz  # Biblioteca para fuso horário
+
+# --- CONFIGURAÇÃO DE FUSO HORÁRIO ---
+fuso_br = pytz.timezone('America/Sao_Paulo')
+
+def obter_agora_br():
+    return datetime.now(fuso_br)
 
 # Configuração da página
 st.set_page_config(page_title="Zelo Kitchen - Gestão", page_icon="🍳", layout="wide")
@@ -89,9 +96,11 @@ with tab1:
             if not nome_input:
                 st.error("Digite o nome do funcionário!")
             else:
-                agora = datetime.now()
-                data_str = agora.strftime("%d/%m/%Y %H:%M")
+                # AJUSTADO: Agora pegando horário de Brasília
+                agora_br = obter_agora_br()
+                data_str = agora_br.strftime("%d/%m/%Y %H:%M")
                 novos_registros = []
+                
                 for equip in lista_equip_atual:
                     h, f, e = respostas.get(f"{equip}_H"), respostas.get(f"{equip}_F"), respostas.get(f"{equip}_E")
                     falhas_lista = []
@@ -100,14 +109,17 @@ with tab1:
                     if e == "NÃO": falhas_lista.append("Estado Geral")
                     status = "✅ Conforme" if not falhas_lista else "❌ Não Conforme"
                     falha_txt = "Nenhuma" if not falhas_lista else ", ".join(falhas_lista)
+                    
                     novos_registros.append({
                         "Data": data_str, "Funcionário": nome_input, "Setor": setor_sel,
-                        "Equipamento": equip, "Status": status, "Falha": falha_txt, "Data_Obj": agora
+                        "Equipamento": equip, "Status": status, "Falha": falha_txt, 
+                        "Data_Obj": agora_br.date() # Guardando apenas a data para o filtro
                     })
+                
                 df_novos = pd.DataFrame(novos_registros)
                 st.session_state.historico = pd.concat([df_novos, st.session_state.historico], ignore_index=True)
                 st.session_state.ultima_inspecao = {"setor": setor_sel, "funcionario": nome_input, "falhas": [r for r in novos_registros if r["Status"] == "❌ Não Conforme"]}
-                st.success("✅ Inspeção salva!")
+                st.success(f"✅ Inspeção salva às {agora_br.strftime('%H:%M')} (Horário de Brasília)!")
 
     if st.session_state.ultima_inspecao:
         st.divider()
@@ -135,30 +147,28 @@ with tab2:
             sel_setor = f1.multiselect("Setor:", options=sorted(st.session_state.historico["Setor"].unique()))
             sel_status = f2.multiselect("Status:", options=sorted(st.session_state.historico["Status"].unique()))
             sel_equip = f3.multiselect("Equipamento:", options=sorted(st.session_state.historico["Equipamento"].unique()))
-            sel_data = f4.date_input("Período:", value=[])
+            # Filtro de data ajustado para o dia de Brasília
+            sel_data = f4.date_input("Período:", value=[], key="filtro_data")
 
         df_f = st.session_state.historico.copy()
         if sel_setor: df_f = df_f[df_f["Setor"].isin(sel_setor)]
         if sel_status: df_f = df_f[df_f["Status"].isin(sel_status)]
         if sel_equip: df_f = df_f[df_f["Equipamento"].isin(sel_equip)]
         if isinstance(sel_data, list) and len(sel_data) == 2:
-            df_f = df_f[(df_f["Data_Obj"].dt.date >= sel_data[0]) & (df_f["Data_Obj"].dt.date <= sel_data[1])]
+            df_f = df_f[(df_f["Data_Obj"] >= sel_data[0]) & (df_f["Data_Obj"] <= sel_data[1])]
 
         st.dataframe(df_f[["Data", "Funcionário", "Setor", "Equipamento", "Status", "Falha"]], use_container_width=True, hide_index=True)
 
-        # --- AÇÕES DO HISTÓRICO FILTRADO ---
         st.divider()
         st.subheader("📤 Exportar Relatório Filtrado")
         e1, e2 = st.columns(2)
         
-        # Botão PDF
         try:
             pdf_b = bytes(gerar_pdf(df_f))
             e1.download_button("📄 Baixar PDF do Histórico", pdf_b, "historico.pdf", "application/pdf", use_container_width=True)
         except Exception as err: e1.error(f"Erro PDF: {err}")
 
-        # BOTÃO E-MAIL FILTRADO (RESTAURADO)
-        resumo_filtrado = f"Relatorio Filtrado Zelo Kitchen - {datetime.now().strftime('%d/%m/%Y')}\n\n"
+        resumo_filtrado = f"Relatorio Filtrado Zelo Kitchen - {obter_agora_br().strftime('%d/%m/%Y')}\n\n"
         for _, r in df_f.iterrows():
             resumo_filtrado += f"{r['Data']} | {r['Equipamento']} ({r['Setor']}): {r['Status']} | Falha: {r['Falha']}\n"
         
