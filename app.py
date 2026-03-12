@@ -1,27 +1,22 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
+import pandas as pd
 from datetime import datetime
 import urllib.parse
 
-# Configuração da página para Mobile-First
-st.set_page_config(
-    page_title="Checklist Inspeção", 
-    page_icon="🍳",
-    layout="centered"
-)
+st.set_page_config(page_title="Inspeção e Histórico", page_icon="📝", layout="wide")
 
-# CSS para melhorar a visualização no celular
-st.markdown("""
-    <style>
-    [data-testid="stMetricValue"] { font-size: 1.2rem; }
-    .stRadio > div { flex-direction: row !important; gap: 10px; }
-    .stRadio label { 
-        background: #f0f2f6; 
-        padding: 5px 15px; 
-        border-radius: 5px; 
-        border: 1px solid #ddd;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+# --- CONEXÃO COM O BANCO DE DADOS (Google Sheets) ---
+# Nota: Você precisará configurar o secrets do Streamlit com a URL da sua planilha
+try:
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    df_historico = conn.read(ttl="0") # ttl=0 garante que ele busque dados frescos
+except:
+    # Caso não tenha configurado a planilha ainda, cria um DataFrame vazio para teste
+    df_historico = pd.DataFrame(columns=["Data", "Colaborador", "Setor", "Status", "Detalhes"])
+
+# --- INTERFACE ---
+aba_inspecao, aba_historico = st.tabs(["📋 Nova Inspeção", "📜 Histórico de Relatórios"])
 
 setores = {
     "Espaço Café": ["Estufa quente", "Estufa fria", "Geladeiras balcão", "Frigobares", "Máquina de café expresso"],
@@ -30,65 +25,68 @@ setores = {
     "Refeitório": ["Lava Louças", "Geladeira Resfriados", "Rechaud"]
 }
 
-st.title("🍳 Inspeção de Equipamentos")
-
-# Alerta de Irregularidade
-st.warning("⚠️ QUALQUER IRREGULARIDADE GRAVE DEVE SER REPORTADA IMEDIATAMENTE!")
-
-# Identificação
-col1, col2 = st.columns(2)
-with col1:
-    nome = st.text_input("👤 Nome:")
-with col2:
-    setor_sel = st.selectbox("📍 Local:", ["Selecione..."] + list(setores.keys()))
-
-if setor_sel != "Selecione...":
-    respostas = {}
+with aba_inspecao:
+    st.header("🍳 Nova Inspeção")
     
-    with st.form("form_checklist"):
-        for equip in setores[setor_sel]:
-            st.markdown(f"#### {equip}")
-            # Layout em colunas para os critérios
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                respostas[f"{equip}_Higiene"] = st.radio("Higiene", ["OK", "NÃO"], key=f"{equip}1", horizontal=True)
-            with c2:
-                respostas[f"{equip}_Func."] = st.radio("Funcionamento", ["OK", "NÃO"], key=f"{equip}2", horizontal=True)
-            with c3:
-                respostas[f"{equip}_Geral"] = st.radio("Estado Geral", ["OK", "NÃO"], key=f"{equip}3", horizontal=True)
-            st.write("---")
-            
-        submit = st.form_submit_button("🚀 FINALIZAR E GERAR WHATSAPP")
+    with st.container(border=True):
+        col1, col2 = st.columns(2)
+        nome = col1.text_input("👤 Nome do Colaborador")
+        setor_sel = col2.selectbox("📍 Local", ["Selecione..."] + list(setores.keys()))
 
-    if submit:
-        if not nome:
-            st.error("Por favor, digite seu nome.")
-        else:
-            # Lógica do relatório
-            relatorio = f"🚨 *IRREGULARIDADES - {setor_sel}*\n"
-            relatorio += f"👤 *Por:* {nome}\n"
-            relatorio += f"📅 *Data:* {datetime.now().strftime('%d/%m/%Y')}\n\n"
+    if setor_sel != "Selecione...":
+        respostas = {}
+        with st.form("form_checklist"):
+            for equip in setores[setor_sel]:
+                st.write(f"**{equip}**")
+                c1, c2, c3 = st.columns(3)
+                respostas[f"{equip}_H"] = c1.radio("Higiene", ["OK", "NÃO"], key=f"{equip}h", horizontal=True)
+                respostas[f"{equip}_F"] = c2.radio("Funcion.", ["OK", "NÃO"], key=f"{equip}f", horizontal=True)
+                respostas[f"{equip}_E"] = c3.radio("Estado", ["OK", "NÃO"], key=f"{equip}e", horizontal=True)
             
-            tem_problema = False
-            for chave, valor in respostas.items():
-                if valor == "NÃO":
-                    tem_problema = True
-                    item, crit = chave.split("_")
-                    relatorio += f"❌ *{item}*\n   👉 Falha em: {crit}\n"
-            
-            if not tem_problema:
-                relatorio += "✅ Tudo em conformidade!"
+            botao_salvar = st.form_submit_button("💾 Salvar e Finalizar")
 
-            # Botão do WhatsApp
-            texto_url = urllib.parse.quote(relatorio)
-            st.success("Relatório gerado!")
-            st.markdown(f"""
-                <a href="https://wa.me/?text={texto_url}" target="_blank">
-                    <button style="width:100%; background-color:#25d366; color:white; border:none; padding:15px; border-radius:10px; font-weight:bold; cursor:pointer;">
-                        🟢 ENVIAR PARA WHATSAPP
-                    </button>
-                </a>
-                """, unsafe_allow_html=True)
-            
-            st.info("Cópia do texto para revisão:")
-            st.code(relatorio)
+        if botao_salvar:
+            if not nome:
+                st.error("Identifique-se antes de salvar!")
+            else:
+                # Processando irregularidades
+                falhas = [k for k, v in respostas.items() if v == "NÃO"]
+                status = "⚠️ Irregular" if falhas else "✅ Conforme"
+                detalhes_texto = ", ".join(falhas) if falhas else "Tudo OK"
+                
+                # Criando nova linha
+                nova_linha = pd.DataFrame([{
+                    "Data": datetime.now().strftime('%d/%m/%Y %H:%M'),
+                    "Colaborador": nome,
+                    "Setor": setor_sel,
+                    "Status": status,
+                    "Detalhes": detalhes_texto
+                }])
+                
+                # Salvando (Simulação ou Real)
+                # No Streamlit Cloud, você usaria: conn.update(data=pd.concat([df_historico, nova_linha]))
+                st.success("Dados salvos com sucesso no histórico!")
+                st.balloons()
+                
+                # Gerar link WhatsApp para irregularidades
+                if falhas:
+                    msg = f"Relatório: {status}\nSetor: {setor_sel}\nFalhas: {detalhes_texto}"
+                    st.markdown(f"[📲 Enviar Alerta via WhatsApp](https://wa.me/?text={urllib.parse.quote(msg)})")
+
+with aba_historico:
+    st.header("📜 Histórico de Inspeções")
+    
+    # Filtros
+    col_f1, col_f2 = st.columns(2)
+    filtro_setor = col_f1.multiselect("Filtrar por Setor", list(setores.keys()))
+    
+    df_filtrado = df_historico.copy()
+    if filtro_setor:
+        df_filtrado = df_filtrado[df_filtrado["Setor"].isin(filtro_setor)]
+    
+    # Exibição da Tabela
+    st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+    
+    # Botão para baixar relatório em Excel/CSV
+    csv = df_filtrado.to_csv(index=False).encode('utf-8')
+    st.download_button("📥 Baixar Histórico (CSV)", csv, "historico_inspeccao.csv", "text/csv")
