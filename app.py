@@ -73,9 +73,12 @@ with tab1:
     if setor_sel != "Selecione...":
         with st.form("form_checklist"):
             respostas = {}
-            for equip in itens_setores[setor_sel]:
+            lista_equip_atual = itens_setores[setor_sel]
+            
+            for equip in lista_equip_atual:
                 st.subheader(f"🔹 {equip}")
                 col_h, col_f, col_e = st.columns(3)
+                # Criando chaves padronizadas
                 respostas[f"{equip}_H"] = col_h.radio("Higiene", ["OK", "NÃO"], key=f"{equip}h", horizontal=True)
                 respostas[f"{equip}_F"] = col_f.radio("Funcionamento", ["OK", "NÃO"], key=f"{equip}f", horizontal=True)
                 respostas[f"{equip}_E"] = col_e.radio("Estado Geral", ["OK", "NÃO"], key=f"{equip}e", horizontal=True)
@@ -89,10 +92,11 @@ with tab1:
                     data_str = agora.strftime("%d/%m/%Y %H:%M")
                     novos_registros = []
 
-                    for equip in itens_setores[setor_sel]:
-                        h = respostas[f"{equip}_H"]
-                        f = respostas[f"{equip}_Funcionamento"]
-                        e = respostas[f"{equip}_E"]
+                    for equip in lista_equip_atual:
+                        # Uso do .get() evita o KeyError se a chave falhar
+                        h = respostas.get(f"{equip}_H", "OK")
+                        f = respostas.get(f"{equip}_F", "OK")
+                        e = respostas.get(f"{equip}_E", "OK")
                         
                         falhas_lista = []
                         if h == "NÃO": falhas_lista.append("Higiene")
@@ -104,10 +108,12 @@ with tab1:
                         
                         novos_registros.append({
                             "Data": data_str, "Funcionário": nome_input, "Setor": setor_sel,
-                            "Equipamento": equip, "Status": status, "Falha": falha_txt, "Data_Obj": agora.date()
+                            "Equipamento": equip, "Status": status, "Falha": falha_txt, "Data_Obj": agora
                         })
 
-                    st.session_state.historico = pd.concat([st.session_state.historico, pd.DataFrame(novos_registros)], ignore_index=True)
+                    # Adiciona e reordena: mais recentes no topo
+                    df_novos = pd.DataFrame(novos_registros)
+                    st.session_state.historico = pd.concat([df_novos, st.session_state.historico], ignore_index=True)
                     st.success("Inspeção salva!")
                     st.rerun()
 
@@ -120,11 +126,9 @@ with tab2:
         with st.expander("🔍 Filtros de Consulta", expanded=True):
             f1, f2, f3, f4 = st.columns(4)
             
-            # FILTROS DINÂMICOS
             sel_setor = f1.multiselect("Setor:", options=sorted(st.session_state.historico["Setor"].unique()))
             sel_status = f2.multiselect("Status:", options=sorted(st.session_state.historico["Status"].unique()))
             
-            # MENU SUSPENSO DE EQUIPAMENTOS BASEADO NO HISTÓRICO
             lista_equips_existentes = sorted(st.session_state.historico["Equipamento"].unique())
             sel_equip = f3.multiselect("Equipamento:", options=lista_equips_existentes)
             
@@ -135,9 +139,12 @@ with tab2:
         if sel_setor: df_f = df_f[df_f["Setor"].isin(sel_setor)]
         if sel_status: df_f = df_f[df_f["Status"].isin(sel_status)]
         if sel_equip: df_f = df_f[df_f["Equipamento"].isin(sel_equip)]
+        
         if isinstance(sel_data, list) and len(sel_data) == 2:
-            df_f = df_f[(df_f["Data_Obj"] >= sel_data[0]) & (df_f["Data_Obj"] <= sel_data[1])]
+            # Convertendo Data_Obj para date para comparação simples
+            df_f = df_f[(df_f["Data_Obj"].dt.date >= sel_data[0]) & (df_f["Data_Obj"].dt.date <= sel_data[1])]
 
+        # Exibição (Mais recentes já estão no topo devido ao concat)
         st.dataframe(
             df_f[["Data", "Funcionário", "Setor", "Equipamento", "Status", "Falha"]], 
             use_container_width=True, hide_index=True
