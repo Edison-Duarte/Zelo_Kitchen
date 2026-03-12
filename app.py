@@ -5,10 +5,9 @@ import urllib.parse
 from fpdf import FPDF
 
 # Configuração da página
-st.set_page_config(page_title="Zelo Kitchen - Histórico", page_icon="🍳", layout="wide")
+st.set_page_config(page_title="Zelo Kitchen - Gestão", page_icon="🍳", layout="wide")
 
 # --- INICIALIZAÇÃO DA SESSÃO ---
-# A tabela agora segue a estrutura: Data, Funcionário, Setor, Equipamento, Status, Falha
 if 'historico' not in st.session_state:
     st.session_state.historico = pd.DataFrame(columns=[
         "Data", "Funcionário", "Setor", "Equipamento", "Status", "Falha", "Data_Obj"
@@ -32,19 +31,17 @@ def gerar_pdf(df):
     pdf.cell(200, 10, "Relatorio de Inspecao de Equipamentos", ln=True, align='C')
     pdf.ln(5)
     
-    # Cabeçalho da Tabela no PDF
     pdf.set_font("Arial", "B", 8)
     pdf.set_fill_color(200, 200, 200)
-    pdf.cell(30, 8, "Data", 1, 0, 'C', True)
-    pdf.cell(35, 8, "Funcionario", 1, 0, 'C', True)
-    pdf.cell(30, 8, "Setor", 1, 0, 'C', True)
-    pdf.cell(40, 8, "Equipamento", 1, 0, 'C', True)
-    pdf.cell(25, 8, "Status", 1, 0, 'C', True)
-    pdf.cell(30, 8, "Falha", 1, 1, 'C', True)
+    col_widths = [28, 32, 28, 42, 30, 30]
+    headers = ["Data", "Funcionario", "Setor", "Equipamento", "Status", "Falha"]
+    
+    for i, h in enumerate(headers):
+        pdf.cell(col_widths[i], 8, h, 1, 0, 'C', True)
+    pdf.ln()
     
     pdf.set_font("Arial", "", 7)
     for _, row in df.iterrows():
-        # Limpeza para PDF (evitar erro latin-1)
         data = str(row['Data']).encode('latin-1', 'replace').decode('latin-1')
         func = str(row['Funcionário']).encode('latin-1', 'replace').decode('latin-1')
         setor = str(row['Setor']).encode('latin-1', 'replace').decode('latin-1')
@@ -52,12 +49,13 @@ def gerar_pdf(df):
         status = str(row['Status']).replace("✅ ", "").replace("❌ ", "")
         falha = str(row['Falha']).encode('latin-1', 'replace').decode('latin-1')
         
-        pdf.cell(30, 8, data, 1)
-        pdf.cell(35, 8, func, 1)
-        pdf.cell(30, 8, setor, 1)
-        pdf.cell(40, 8, equip, 1)
-        pdf.cell(25, 8, status, 1)
-        pdf.cell(30, 8, falha, 1, 1)
+        pdf.cell(col_widths[0], 8, data, 1)
+        pdf.cell(col_widths[1], 8, func, 1)
+        pdf.cell(col_widths[2], 8, setor, 1)
+        pdf.cell(col_widths[3], 8, equip, 1)
+        pdf.cell(col_widths[4], 8, status, 1)
+        pdf.cell(col_widths[5], 8, falha, 1)
+        pdf.ln()
         
     return pdf.output()
 
@@ -78,9 +76,9 @@ with tab1:
             for equip in itens_setores[setor_sel]:
                 st.subheader(f"🔹 {equip}")
                 col_h, col_f, col_e = st.columns(3)
-                respostas[f"{equip}_Higiene"] = col_h.radio("Higiene", ["OK", "NÃO"], key=f"{equip}h", horizontal=True)
-                respostas[f"{equip}_Funcionamento"] = col_f.radio("Funcionamento", ["OK", "NÃO"], key=f"{equip}f", horizontal=True)
-                respostas[f"{equip}_Estado"] = col_e.radio("Estado Geral", ["OK", "NÃO"], key=f"{equip}e", horizontal=True)
+                respostas[f"{equip}_H"] = col_h.radio("Higiene", ["OK", "NÃO"], key=f"{equip}h", horizontal=True)
+                respostas[f"{equip}_F"] = col_f.radio("Funcionamento", ["OK", "NÃO"], key=f"{equip}f", horizontal=True)
+                respostas[f"{equip}_E"] = col_e.radio("Estado Geral", ["OK", "NÃO"], key=f"{equip}e", horizontal=True)
                 st.divider()
             
             if st.form_submit_button("🚀 Salvar Inspeção"):
@@ -91,35 +89,27 @@ with tab1:
                     data_str = agora.strftime("%d/%m/%Y %H:%M")
                     novos_registros = []
 
-                    # Lógica: Para cada equipamento, verificamos se há falhas
                     for equip in itens_setores[setor_sel]:
-                        h = respostas[f"{equip}_Higiene"]
+                        h = respostas[f"{equip}_H"]
                         f = respostas[f"{equip}_Funcionamento"]
-                        e = respostas[f"{equip}_Estado"]
+                        e = respostas[f"{equip}_E"]
                         
                         falhas_lista = []
                         if h == "NÃO": falhas_lista.append("Higiene")
                         if f == "NÃO": falhas_lista.append("Funcionamento")
                         if e == "NÃO": falhas_lista.append("Estado Geral")
                         
-                        # Se não houver falhas, registra como Conforme
-                        if not falhas_lista:
-                            novos_registros.append({
-                                "Data": data_str, "Funcionário": nome_input, "Setor": setor_sel,
-                                "Equipamento": equip, "Status": "✅ Conforme", "Falha": "Nenhuma", "Data_Obj": agora.date()
-                            })
-                        else:
-                            # Se houver falhas, registra como Não Conforme
-                            novos_registros.append({
-                                "Data": data_str, "Funcionário": nome_input, "Setor": setor_sel,
-                                "Equipamento": equip, "Status": "❌ Não Conforme", "Falha": ", ".join(falhas_lista), "Data_Obj": agora.date()
-                            })
+                        status = "✅ Conforme" if not falhas_lista else "❌ Não Conforme"
+                        falha_txt = "Nenhuma" if not falhas_lista else ", ".join(falhas_lista)
+                        
+                        novos_registros.append({
+                            "Data": data_str, "Funcionário": nome_input, "Setor": setor_sel,
+                            "Equipamento": equip, "Status": status, "Falha": falha_txt, "Data_Obj": agora.date()
+                        })
 
-                    # Adiciona ao histórico global
-                    df_novos = pd.DataFrame(novos_registros)
-                    st.session_state.historico = pd.concat([st.session_state.historico, df_novos], ignore_index=True)
-                    st.success("Inspeção finalizada e salva no histórico!")
-                    st.balloons()
+                    st.session_state.historico = pd.concat([st.session_state.historico, pd.DataFrame(novos_registros)], ignore_index=True)
+                    st.success("Inspeção salva!")
+                    st.rerun()
 
 with tab2:
     st.header("📜 Histórico de Inspeções")
@@ -127,46 +117,45 @@ with tab2:
     if st.session_state.historico.empty:
         st.info("Nenhum dado registrado nesta sessão.")
     else:
-        # Filtros
         with st.expander("🔍 Filtros de Consulta", expanded=True):
             f1, f2, f3, f4 = st.columns(4)
-            sel_setor = f1.multiselect("Setor:", setores)
-            sel_status = f2.multiselect("Status:", ["✅ Conforme", "❌ Não Conforme"])
-            sel_equip = f3.text_input("Equipamento:")
+            
+            # FILTROS DINÂMICOS
+            sel_setor = f1.multiselect("Setor:", options=sorted(st.session_state.historico["Setor"].unique()))
+            sel_status = f2.multiselect("Status:", options=sorted(st.session_state.historico["Status"].unique()))
+            
+            # MENU SUSPENSO DE EQUIPAMENTOS BASEADO NO HISTÓRICO
+            lista_equips_existentes = sorted(st.session_state.historico["Equipamento"].unique())
+            sel_equip = f3.multiselect("Equipamento:", options=lista_equips_existentes)
+            
             sel_data = f4.date_input("Período:", value=[])
 
         # Aplicação dos Filtros
         df_f = st.session_state.historico.copy()
         if sel_setor: df_f = df_f[df_f["Setor"].isin(sel_setor)]
         if sel_status: df_f = df_f[df_f["Status"].isin(sel_status)]
-        if sel_equip: df_f = df_f[df_f["Equipamento"].str.contains(sel_equip, case=False)]
+        if sel_equip: df_f = df_f[df_f["Equipamento"].isin(sel_equip)]
         if isinstance(sel_data, list) and len(sel_data) == 2:
             df_f = df_f[(df_f["Data_Obj"] >= sel_data[0]) & (df_f["Data_Obj"] <= sel_data[1])]
 
-        # Exibição da Tabela Conforme Solicitado
         st.dataframe(
             df_f[["Data", "Funcionário", "Setor", "Equipamento", "Status", "Falha"]], 
-            use_container_width=True, 
-            hide_index=True
+            use_container_width=True, hide_index=True
         )
 
-        # Exportação
         st.divider()
         e1, e2 = st.columns(2)
-        
         try:
-            pdf_bytes = bytes(gerar_pdf(df_f))
-            e1.download_button("📄 Gerar PDF Filtrado", pdf_bytes, "historico_inspecao.pdf", "application/pdf", use_container_width=True)
-        except Exception as err:
-            e1.error(f"Erro no PDF: {err}")
+            pdf_b = bytes(gerar_pdf(df_f))
+            e1.download_button("📄 Gerar PDF Filtrado", pdf_b, "historico.pdf", "application/pdf", use_container_width=True)
+        except Exception as err: e1.error(f"Erro PDF: {err}")
 
-        # Envio por E-mail (Resumo)
-        resumo = f"Relatorio Zelo Kitchen - {datetime.now().strftime('%d/%m/%Y')}\n"
+        resumo = f"Relatorio Zelo Kitchen\n"
         for _, r in df_f.iterrows():
-            resumo += f"\n- {r['Equipamento']} ({r['Setor']}): {r['Status']} | Falha: {r['Falha']}"
+            resumo += f"\n- {r['Equipamento']}: {r['Status']} | Falha: {r['Falha']}"
         
         url_mail = f"mailto:?subject=Relatorio de Inspecao&body={urllib.parse.quote(resumo)}"
-        e2.markdown(f'<a href="{url_mail}" target="_blank"><button style="width:100%; height:42px; border-radius:8px; cursor:pointer;">📧 Enviar Resumo por E-mail</button></a>', unsafe_allow_html=True)
+        e2.markdown(f'<a href="{url_mail}" target="_blank"><button style="width:100%; height:42px; cursor:pointer; border-radius:8px;">📧 Enviar por E-mail</button></a>', unsafe_allow_html=True)
 
         if st.button("🗑️ Resetar Tudo"):
             st.session_state.historico = pd.DataFrame(columns=["Data", "Funcionário", "Setor", "Equipamento", "Status", "Falha", "Data_Obj"])
