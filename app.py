@@ -4,16 +4,16 @@ from datetime import datetime
 import urllib.parse
 from fpdf import FPDF
 
-# Configuração da página
+# Configuração da página para melhor experiência mobile e desktop
 st.set_page_config(page_title="Zelo Kitchen - Inspeção", page_icon="🍳", layout="wide")
 
-# --- INICIALIZAÇÃO DA SESSÃO ---
+# --- INICIALIZAÇÃO DA SESSÃO (HISTÓRICO TEMPORÁRIO) ---
 if 'historico' not in st.session_state:
     st.session_state.historico = pd.DataFrame(columns=[
         "Data", "Colaborador", "Setor", "Status", "Irregularidades", "Data_Obj"
     ])
 
-# --- DADOS ---
+# --- BASE DE DADOS DE EQUIPAMENTOS ---
 setores = ["Espaço Café", "Cozinha", "Mirante", "Refeitório"]
 itens_setores = {
     "Espaço Café": ["Estufa quente", "Estufa fria", "Geladeiras balcão", "Frigobares", "Máquina de café expresso"],
@@ -22,38 +22,40 @@ itens_setores = {
     "Refeitório": ["Lava Louças", "Geladeira Resfriados", "Rechaud"]
 }
 
-# --- FUNÇÃO GERAR PDF (CORRIGIDA) ---
+# --- FUNÇÃO GERAR PDF ---
 def gerar_pdf(df):
     pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     pdf.set_font("Arial", "B", 16)
     pdf.cell(200, 10, "Relatorio de Inspecoes - Zelo Kitchen", ln=True, align='C')
     pdf.ln(10)
     
     for i, row in df.iterrows():
-        # Limpeza para evitar erro de codificação Unicode (Latin-1)
-        # Removemos emojis e garantimos que acentos funcionem via tratamento de string
-        colaborador = str(row['Colaborador']).encode('latin-1', 'ignore').decode('latin-1')
-        setor = str(row['Setor']).encode('latin-1', 'ignore').decode('latin-1')
+        # Tratamento de strings para evitar erro Unicode/Latin-1 no PDF
+        colaborador = str(row['Colaborador']).encode('latin-1', 'replace').decode('latin-1')
+        setor = str(row['Setor']).encode('latin-1', 'replace').decode('latin-1')
         status = str(row['Status']).replace("✅ ", "").replace("❌ ", "")
-        irregularidades = str(row['Irregularidades']).encode('latin-1', 'ignore').decode('latin-1')
+        irregularidades = str(row['Irregularidades']).encode('latin-1', 'replace').decode('latin-1')
         
         pdf.set_font("Arial", "B", 11)
-        pdf.cell(0, 10, f"Data: {row['Data']} | Setor: {setor}", ln=True)
+        pdf.set_fill_color(240, 240, 240)
+        pdf.cell(0, 10, f"Data: {row['Data']} | Setor: {setor}", ln=True, fill=True)
         
         pdf.set_font("Arial", "", 10)
         texto_corpo = (
             f"Inspetor: {colaborador}\n"
             f"Status: {status}\n"
             f"Irregularidades: {irregularidades}\n"
-            + "-"*70
+            + "-"*85
         )
         pdf.multi_cell(0, 5, texto_corpo)
         pdf.ln(2)
     
+    # Retorna o buffer do PDF (fpdf2 retorna bytearray por padrão)
     return pdf.output()
 
-# --- INTERFACE ---
+# --- INTERFACE PRINCIPAL ---
 st.title("🍳 Sistema de Inspeção de Equipamentos")
 
 tab1, tab2 = st.tabs(["📝 Nova Inspeção", "📜 Histórico Temporário"])
@@ -62,109 +64,127 @@ with tab1:
     st.header("Realizar Checklist")
     with st.container(border=True):
         c1, c2 = st.columns(2)
-        nome_input = c1.text_input("👤 Nome do Colaborador:")
-        setor_sel = c2.selectbox("📍 Selecione o Local:", ["Selecione..."] + setores)
+        nome_input = c1.text_input("👤 Nome do Colaborador:", placeholder="Ex: João Silva")
+        setor_sel = c2.selectbox("📍 Selecione o Local da Inspeção:", ["Selecione..."] + setores)
 
     if setor_sel != "Selecione...":
         with st.form("checklist_form"):
             respostas = {}
-            st.markdown(f"### Itens: {setor_sel}")
+            st.markdown(f"### Equipamentos: {setor_sel}")
+            
             for equip in itens_setores[setor_sel]:
                 st.write(f"**{equip}**")
                 cols = st.columns(3)
+                # Chaves únicas para evitar conflitos no session_state
                 respostas[f"{equip}_H"] = cols[0].radio("Higiene", ["OK", "NÃO"], key=f"{equip}h", horizontal=True)
                 respostas[f"{equip}_F"] = cols[1].radio("Funcion.", ["OK", "NÃO"], key=f"{equip}f", horizontal=True)
                 respostas[f"{equip}_E"] = cols[2].radio("Estado", ["OK", "NÃO"], key=f"{equip}e", horizontal=True)
                 st.divider()
             
-            if st.form_submit_button("🚀 Finalizar e Salvar"):
+            submit_btn = st.form_submit_button("🚀 Finalizar e Salvar Inspeção")
+            
+            if submit_btn:
                 if not nome_input:
-                    st.error("Por favor, preencha seu nome!")
+                    st.error("⚠️ Por favor, preencha o nome do responsável antes de finalizar.")
                 else:
-                    # Lógica de processamento
-                    falhas = []
-                    for k, v in respostas.items():
-                        if v == "NÃO":
-                            item = k.rsplit('_', 1)[0]
-                            if item not in falhas: falhas.append(item)
+                    # Filtra apenas os itens com "NÃO"
+                    falhas = [k.rsplit('_', 1)[0] for k, v in respostas.items() if v == "NÃO"]
+                    falhas_unicas = sorted(list(set(falhas)))
                     
-                    status = "❌ Irregular" if falhas else "✅ Conforme"
+                    status = "❌ Irregular" if falhas_unicas else "✅ Conforme"
                     agora = datetime.now()
                     
+                    # Adiciona ao DataFrame global da sessão
                     nova_entrada = pd.DataFrame([{
                         "Data": agora.strftime("%d/%m/%Y %H:%M"),
                         "Colaborador": nome_input,
                         "Setor": setor_sel,
                         "Status": status,
-                        "Irregularidades": ", ".join(falhas) if falhas else "Nenhuma",
+                        "Irregularidades": ", ".join(falhas_unicas) if falhas_unicas else "Nenhuma",
                         "Data_Obj": agora.date()
                     }])
                     
                     st.session_state.historico = pd.concat([st.session_state.historico, nova_entrada], ignore_index=True)
-                    st.success("Inspeção registrada com sucesso!")
+                    st.success("✅ Inspeção salva no histórico temporário!")
                     
-                    # Link WhatsApp
-                    msg_zap = f"🚨 *INSPEÇÃO: {setor_sel}*\nStatus: {status}\nResponsável: {nome_input}"
-                    if falhas: msg_zap += f"\nItens: {', '.join(falhas)}"
-                    st.markdown(f"[🟢 Enviar Resumo via WhatsApp](https://wa.me/?text={urllib.parse.quote(msg_zap)})")
+                    # Preparação para WhatsApp
+                    resumo_zap = f"🚨 *INSPEÇÃO: {setor_sel}*\n*Status:* {status}\n*Responsável:* {nome_input}"
+                    if falhas_unicas:
+                        resumo_zap += f"\n*Falhas detectadas:* {', '.join(falhas_unicas)}"
+                    
+                    st.markdown(f"""
+                        <a href="https://wa.me/?text={urllib.parse.quote(resumo_zap)}" target="_blank">
+                            <button style="width:100%; background-color:#25d366; color:white; border:none; padding:12px; border-radius:10px; font-weight:bold; cursor:pointer; margin-top:10px;">
+                                🟢 Enviar Alerta via WhatsApp
+                            </button>
+                        </a>
+                    """, unsafe_allow_html=True)
 
 with tab2:
-    st.header("Consulta e Filtros")
+    st.header("Histórico e Filtros Avançados")
     
     if st.session_state.historico.empty:
-        st.info("O histórico está vazio. Realize uma inspeção para visualizar os dados.")
+        st.info("O histórico está vazio. As inspeções realizadas aparecerão aqui até que o app seja reiniciado.")
     else:
-        # --- FILTROS ---
+        # --- SEÇÃO DE FILTROS ---
         with st.expander("🔍 Filtrar Resultados", expanded=True):
             f_c1, f_c2, f_c3 = st.columns(3)
-            f_setor = f_c1.multiselect("Setor:", setores)
-            f_status = f_c2.multiselect("Status:", ["✅ Conforme", "❌ Irregular"])
-            f_data = f_c3.date_input("Filtrar por data:", [])
+            f_setor = f_c1.multiselect("Filtrar Setor:", setores)
+            f_status = f_c2.multiselect("Filtrar Status:", ["✅ Conforme", "❌ Irregular"])
+            # Filtro de data (seleção de intervalo)
+            f_data = f_c3.date_input("Filtrar Período:", value=[])
 
-        # Aplicação dos Filtros
-        df_f = st.session_state.historico.copy()
+        # Aplicação da lógica de filtragem no DataFrame
+        df_filtrado = st.session_state.historico.copy()
+        
         if f_setor:
-            df_f = df_f[df_f["Setor"].isin(f_setor)]
+            df_filtrado = df_filtrado[df_filtrado["Setor"].isin(f_setor)]
         if f_status:
-            df_f = df_f[df_f["Status"].isin(f_status)]
-        if len(f_data) == 2:
-            df_f = df_f[(df_f["Data_Obj"] >= f_data[0]) & (df_f["Data_Obj"] <= f_data[1])]
+            df_filtrado = df_filtrado[df_filtrado["Status"].isin(f_status)]
+        if isinstance(f_data, list) and len(f_data) == 2:
+            df_filtrado = df_filtrado[(df_filtrado["Data_Obj"] >= f_data[0]) & (df_filtrado["Data_Obj"] <= f_data[1])]
+        elif isinstance(f_data, datetime): # Caso selecione apenas uma data
+            df_filtrado = df_filtrado[df_filtrado["Data_Obj"] == f_data]
 
-        st.dataframe(df_f.drop(columns=["Data_Obj"]), use_container_width=True, hide_index=True)
+        # Exibição da Tabela (Ocultando a coluna técnica de data)
+        st.dataframe(df_filtrado.drop(columns=["Data_Obj"]), use_container_width=True, hide_index=True)
 
-        # --- EXPORTAÇÃO ---
+        # --- SEÇÃO DE EXPORTAÇÃO ---
         st.divider()
-        st.subheader("📤 Exportar Relatório")
+        st.subheader("📤 Exportar Dados Filtrados")
         
-        e_c1, e_c2 = st.columns(2)
+        exp_c1, exp_c2 = st.columns(2)
         
-        # Botão PDF
+        # Lógica de geração de PDF com conversão bytearray -> bytes
         try:
-            pdf_bytes = gerar_pdf(df_f)
-            e_c1.download_button(
-                label="📄 Baixar PDF Filtrado",
-                data=pdf_bytes,
-                file_name=f"relatorio_zelo_{datetime.now().strftime('%d_%m')}.pdf",
+            pdf_raw = gerar_pdf(df_filtrado)
+            pdf_final = bytes(pdf_raw) # CORREÇÃO DO ERRO DE FORMATO BINÁRIO
+            
+            exp_c1.download_button(
+                label="📄 Baixar Relatório em PDF",
+                data=pdf_final,
+                file_name=f"inspeção_zelo_{datetime.now().strftime('%d_%m_%H%M')}.pdf",
                 mime="application/pdf",
                 use_container_width=True
             )
         except Exception as e:
-            e_c1.error(f"Erro ao gerar PDF: {e}")
+            exp_c1.error(f"Erro técnico ao gerar PDF: {e}")
 
-        # Botão E-mail
-        resumo_email = "Relatorio de Inspecao\n" + "="*20 + "\n"
-        for _, r in df_f.iterrows():
-            resumo_email += f"{r['Data']} - {r['Setor']} - {r['Status']}\n"
+        # Lógica de E-mail (via cliente local)
+        corpo_email = "Resumo de Inspeções Zelo Kitchen\n" + "="*30 + "\n"
+        for _, r in df_filtrado.iterrows():
+            corpo_email += f"{r['Data']} | {r['Setor']} | {r['Status']}\n"
         
-        mailto = f"mailto:?subject=Relatorio Inspecao Zelo Kitchen&body={urllib.parse.quote(resumo_email)}"
-        e_c2.markdown(f"""
-            <a href="{mailto}" target="_blank">
+        mailto_url = f"mailto:?subject=Relatorio de Inspecao&body={urllib.parse.quote(corpo_email)}"
+        exp_c2.markdown(f"""
+            <a href="{mailto_url}" target="_blank">
                 <button style="width:100%; height:40px; background-color:#f0f2f6; border:1px solid #dcdfe3; border-radius:8px; cursor:pointer;">
-                    📧 Enviar por E-mail
+                    📧 Enviar Resumo por E-mail
                 </button>
             </a>
         """, unsafe_allow_html=True)
 
-        if st.button("🗑️ Limpar Todo o Histórico"):
+        st.divider()
+        if st.button("🗑️ Limpar Todo o Histórico (Sessão Atual)"):
             st.session_state.historico = pd.DataFrame(columns=["Data", "Colaborador", "Setor", "Status", "Irregularidades", "Data_Obj"])
             st.rerun()
