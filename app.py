@@ -2,123 +2,139 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import urllib.parse
+from fpdf import FPDF
+import base64
 
 # Configuração da página
-st.set_page_config(page_title="Checklist Operacional", page_icon="🍳", layout="centered")
+st.set_page_config(page_title="Checklist Pro", page_icon="🍳", layout="wide")
 
-# --- INICIALIZAÇÃO DA MEMÓRIA TEMPORÁRIA ---
+# --- INICIALIZAÇÃO DA SESSÃO ---
 if 'historico' not in st.session_state:
-    # Criamos um DataFrame vazio na primeira vez que o app roda
-    st.session_state.historico = pd.DataFrame(columns=["Data", "Colaborador", "Setor", "Status", "Irregularidades"])
+    st.session_state.historico = pd.DataFrame(columns=[
+        "Data", "Colaborador", "Setor", "Status", "Irregularidades", "Data_Obj"
+    ])
 
 # --- DADOS ---
-setores = {
+setores = ["Espaço Café", "Cozinha", "Mirante", "Refeitório"]
+itens_setores = {
     "Espaço Café": ["Estufa quente", "Estufa fria", "Geladeiras balcão", "Frigobares", "Máquina de café expresso"],
     "Cozinha": ["Geladeiras Bacio di Latte", "Geladeiras Resfriados", "Câmaras Frias", "Freezers Horizontais", "Fornos", "Fogões", "Fritadeiras", "Chapas", "Geladeiras Balcões", "Coifas", "Pista Fria"],
     "Mirante": ["Freezer Sorvete Dona Mazza", "Adega Vinhos", "Geladeiras", "Geladeiras Balcões", "Lava Louças", "Coifas", "Pista Fria", "Elevador Monta Carga", "Freezer Horizontal", "Churrasqueira", "Forno a Lenha"],
     "Refeitório": ["Lava Louças", "Geladeira Resfriados", "Rechaud"]
 }
 
-# --- INTERFACE ---
-st.title("🍳 Sistema de Inspeção")
+# --- FUNÇÕES DE EXPORTAÇÃO ---
+def gerar_pdf(df):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(200, 10, "Relatório de Inspeções Filtrado", ln=True, align='C')
+    pdf.set_font("Arial", "", 10)
+    pdf.ln(10)
+    
+    for i, row in df.iterrows():
+        pdf.set_font("Arial", "B", 11)
+        pdf.cell(0, 10, f"Data: {row['Data']} - Setor: {row['Setor']}", ln=True)
+        pdf.set_font("Arial", "", 10)
+        pdf.multi_cell(0, 5, f"Inspetor: {row['Colaborador']}\nStatus: {row['Status']}\nIrregularidades: {row['Irregularidades']}\n" + "-"*50)
+        pdf.ln(2)
+    
+    return pdf.output(dest='S').encode('latin-1')
 
+# --- INTERFACE ---
 tab1, tab2 = st.tabs(["📝 Nova Inspeção", "📜 Histórico Temporário"])
 
 with tab1:
-    st.info("Nota: Os dados desta sessão serão perdidos se a página for atualizada (F5).")
-    
+    st.header("Nova Inspeção")
     with st.container(border=True):
-        col1, col2 = st.columns(2)
-        nome = col1.text_input("👤 Nome do Inspetor:")
-        setor_sel = col2.selectbox("📍 Setor:", ["Selecione..."] + list(setores.keys()))
+        c1, c2 = st.columns(2)
+        nome = c1.text_input("👤 Nome do Inspetor:")
+        setor_sel = c2.selectbox("📍 Setor:", ["Selecione..."] + setores)
 
     if setor_sel != "Selecione...":
-        respostas = {}
-        
-        with st.form("form_checklist"):
-            st.markdown(f"### Itens de: {setor_sel}")
+        with st.form("checklist_form"):
+            respostas = {}
+            for equip in itens_setores[setor_sel]:
+                st.write(f"**{equip}**")
+                cols = st.columns(3)
+                respostas[f"{equip}_H"] = cols[0].radio("Higiene", ["OK", "NÃO"], key=f"{equip}h", horizontal=True)
+                respostas[f"{equip}_F"] = cols[1].radio("Funcion.", ["OK", "NÃO"], key=f"{equip}f", horizontal=True)
+                respostas[f"{equip}_E"] = cols[2].radio("Estado", ["OK", "NÃO"], key=f"{equip}e", horizontal=True)
             
-            for equip in setores[setor_sel]:
-                st.markdown(f"**{equip}**")
-                c1, c2, c3 = st.columns(3)
-                # Usamos nomes curtos para caber no celular
-                respostas[f"{equip}_H"] = c1.radio("Higiene", ["Conforme", "Não Conf."], key=f"{equip}_h", horizontal=True)
-                respostas[f"{equip}_F"] = c2.radio("Funcion.", ["Conforme", "Não Conf."], key=f"{equip}_f", horizontal=True)
-                respostas[f"{equip}_E"] = c3.radio("Estado", ["Conforme", "Não Conf."], key=f"{equip}_e", horizontal=True)
-                st.divider()
-            
-            submit = st.form_submit_button("🚀 Finalizar Inspeção")
-
-        if submit:
-            if not nome or nome.strip() == "":
-                st.error("Por favor, preencha o nome do colaborador.")
-            else:
-                # 1. Identificar falhas
-                falhas = []
-                for chave, valor in respostas.items():
-                    if valor == "Não Conf.":
-                        # Limpa o nome da chave para o relatório
-                        item_nome = chave.rsplit('_', 1)[0]
-                        falhas.append(item_nome)
-                
-                # Remover duplicatas de itens que falharam em mais de um critério
+            if st.form_submit_button("🚀 Finalizar"):
+                falhas = [k.rsplit('_', 1)[0] for k, v in respostas.items() if v == "NÃO"]
                 falhas_unicas = list(set(falhas))
                 status = "❌ Irregular" if falhas_unicas else "✅ Conforme"
-                detalhes = ", ".join(falhas_unicas) if falhas_unicas else "Nenhuma"
-
-                # 2. Salvar no Histórico da Sessão
+                
+                agora = datetime.now()
                 nova_entrada = pd.DataFrame([{
-                    "Data": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                    "Data": agora.strftime("%d/%m/%Y %H:%M"),
                     "Colaborador": nome,
                     "Setor": setor_sel,
                     "Status": status,
-                    "Irregularidades": detalhes
+                    "Irregularidades": ", ".join(falhas_unicas) if falhas_unicas else "Nenhuma",
+                    "Data_Obj": agora.date()
                 }])
-                
                 st.session_state.historico = pd.concat([st.session_state.historico, nova_entrada], ignore_index=True)
-                
-                st.success("Inspeção registrada no histórico local!")
-                
-                # 3. Gerar link para WhatsApp
-                relatorio_zap = f"🚨 *RELATÓRIO DE INSPEÇÃO*\n\n"
-                relatorio_zap += f"👤 *Inspetor:* {nome}\n"
-                relatorio_zap += f"📍 *Setor:* {setor_sel}\n"
-                relatorio_zap += f"📊 *Status:* {status}\n"
-                if falhas_unicas:
-                    relatorio_zap += f"⚠️ *Itens com falha:* {detalhes}\n"
-                
-                url_whatsapp = f"https://wa.me/?text={urllib.parse.quote(relatorio_zap)}"
-                st.markdown(f"""
-                    <a href="{url_whatsapp}" target="_blank">
-                        <button style="width:100%; background-color:#25d366; color:white; border:none; padding:15px; border-radius:10px; font-weight:bold; cursor:pointer;">
-                            🟢 Enviar para WhatsApp
-                        </button>
-                    </a>
-                """, unsafe_allow_html=True)
+                st.success("Inspeção Salva!")
 
 with tab2:
-    st.header("📜 Relatórios da Sessão")
+    st.header("Filtros do Histórico")
     
-    if st.session_state.historico.empty:
-        st.write("Nenhuma inspeção realizada nesta sessão.")
-    else:
-        # Exibe a tabela do histórico
-        st.dataframe(
-            st.session_state.historico, 
-            use_container_width=True, 
-            hide_index=True
-        )
+    if not st.session_state.historico.empty:
+        # --- LINHA DE FILTROS ---
+        f_col1, f_col2, f_col3 = st.columns(3)
         
-        # Botão para limpar o histórico manualmente
-        if st.button("🗑️ Limpar Histórico Atual"):
-            st.session_state.historico = pd.DataFrame(columns=["Data", "Colaborador", "Setor", "Status", "Irregularidades"])
-            st.rerun()
+        filtro_setor = f_col1.multiselect("Setor:", setores)
+        filtro_status = f_col2.multiselect("Status:", ["✅ Conforme", "❌ Irregular"])
+        
+        # Filtro de Período
+        data_inicio = f_col3.date_input("Início:", datetime.now())
+        data_fim = f_col3.date_input("Fim:", datetime.now())
 
-        # Download como CSV (caso o usuário queira salvar antes de fechar o navegador)
-        csv = st.session_state.historico.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Baixar em Excel (CSV)",
-            data=csv,
-            file_name=f"inspecoes_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv",
+        # Aplicação dos Filtros
+        df_filtrado = st.session_state.historico.copy()
+        
+        if filtro_setor:
+            df_filtrado = df_filtrado[df_filtrado["Setor"].isin(filtro_setor)]
+        if filtro_status:
+            df_filtrado = df_filtrado[df_filtrado["Status"].isin(filtro_status)]
+        
+        df_filtrado = df_filtrado[
+            (df_filtrado["Data_Obj"] >= data_inicio) & 
+            (df_filtrado["Data_Obj"] <= data_fim)
+        ]
+
+        st.dataframe(df_filtrado.drop(columns=["Data_Obj"]), use_container_width=True, hide_index=True)
+
+        # --- BOTÕES DE EXPORTAÇÃO ---
+        st.write("### Exportar Dados Filtrados")
+        e_col1, e_col2 = st.columns(2)
+
+        # Botão PDF
+        pdf_data = gerar_pdf(df_filtrado)
+        e_col1.download_button(
+            label="📄 Gerar PDF (Filtrado)",
+            data=pdf_data,
+            file_name="relatorio_inspeccao.pdf",
+            mime="application/pdf",
+            use_container_width=True
         )
+
+        # Botão E-mail (Link mailto)
+        # Nota: O mailto tem limite de caracteres, enviamos um resumo
+        corpo_email = f"Relatório de Inspeção - {datetime.now().strftime('%d/%m/%Y')}\n\n"
+        for _, r in df_filtrado.iterrows():
+            corpo_email += f"- {r['Data']} | {r['Setor']} | {r['Status']}\n"
+        
+        mailto_link = f"mailto:?subject=Relatorio de Inspecao&body={urllib.parse.quote(corpo_email)}"
+        e_col2.markdown(f"""
+            <a href="{mailto_link}" target="_blank">
+                <button style="width:100%; height:38px; background-color:#f0f2f6; border:1px solid #dcdfe3; border-radius:5px; cursor:pointer;">
+                    📧 Enviar Resumo por E-mail
+                </button>
+            </a>
+        """, unsafe_allow_html=True)
+
+    else:
+        st.info("Nenhum dado para filtrar ainda.")
