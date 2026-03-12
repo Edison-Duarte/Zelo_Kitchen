@@ -13,6 +13,10 @@ if 'historico' not in st.session_state:
         "Data", "Funcionário", "Setor", "Equipamento", "Status", "Falha", "Data_Obj"
     ])
 
+# Variável para armazenar a última inspeção feita para os botões de envio imediato
+if 'ultima_inspecao' not in st.session_state:
+    st.session_state.ultima_inspecao = None
+
 # --- DADOS ---
 setores = ["Espaço Café", "Cozinha", "Mirante", "Refeitório"]
 itens_setores = {
@@ -78,44 +82,91 @@ with tab1:
             for equip in lista_equip_atual:
                 st.subheader(f"🔹 {equip}")
                 col_h, col_f, col_e = st.columns(3)
-                # Criando chaves padronizadas
                 respostas[f"{equip}_H"] = col_h.radio("Higiene", ["OK", "NÃO"], key=f"{equip}h", horizontal=True)
                 respostas[f"{equip}_F"] = col_f.radio("Funcionamento", ["OK", "NÃO"], key=f"{equip}f", horizontal=True)
                 respostas[f"{equip}_E"] = col_e.radio("Estado Geral", ["OK", "NÃO"], key=f"{equip}e", horizontal=True)
                 st.divider()
             
-            if st.form_submit_button("🚀 Salvar Inspeção"):
-                if not nome_input:
-                    st.error("Digite o nome do funcionário!")
-                else:
-                    agora = datetime.now()
-                    data_str = agora.strftime("%d/%m/%Y %H:%M")
-                    novos_registros = []
+            submit_btn = st.form_submit_button("🚀 Salvar Inspeção")
 
-                    for equip in lista_equip_atual:
-                        # Uso do .get() evita o KeyError se a chave falhar
-                        h = respostas.get(f"{equip}_H", "OK")
-                        f = respostas.get(f"{equip}_F", "OK")
-                        e = respostas.get(f"{equip}_E", "OK")
-                        
-                        falhas_lista = []
-                        if h == "NÃO": falhas_lista.append("Higiene")
-                        if f == "NÃO": falhas_lista.append("Funcionamento")
-                        if e == "NÃO": falhas_lista.append("Estado Geral")
-                        
-                        status = "✅ Conforme" if not falhas_lista else "❌ Não Conforme"
-                        falha_txt = "Nenhuma" if not falhas_lista else ", ".join(falhas_lista)
-                        
-                        novos_registros.append({
-                            "Data": data_str, "Funcionário": nome_input, "Setor": setor_sel,
-                            "Equipamento": equip, "Status": status, "Falha": falha_txt, "Data_Obj": agora
-                        })
+        if submit_btn:
+            if not nome_input:
+                st.error("Digite o nome do funcionário!")
+            else:
+                agora = datetime.now()
+                data_str = agora.strftime("%d/%m/%Y %H:%M")
+                novos_registros = []
 
-                    # Adiciona e reordena: mais recentes no topo
-                    df_novos = pd.DataFrame(novos_registros)
-                    st.session_state.historico = pd.concat([df_novos, st.session_state.historico], ignore_index=True)
-                    st.success("Inspeção salva!")
-                    st.rerun()
+                for equip in lista_equip_atual:
+                    h = respostas.get(f"{equip}_H", "OK")
+                    f = respostas.get(f"{equip}_F", "OK")
+                    e = respostas.get(f"{equip}_E", "OK")
+                    
+                    falhas_lista = []
+                    if h == "NÃO": falhas_lista.append("Higiene")
+                    if f == "NÃO": falhas_lista.append("Funcionamento")
+                    if e == "NÃO": falhas_lista.append("Estado Geral")
+                    
+                    status = "✅ Conforme" if not falhas_lista else "❌ Não Conforme"
+                    falha_txt = "Nenhuma" if not falhas_lista else ", ".join(falhas_lista)
+                    
+                    novos_registros.append({
+                        "Data": data_str, "Funcionário": nome_input, "Setor": setor_sel,
+                        "Equipamento": equip, "Status": status, "Falha": falha_txt, "Data_Obj": agora
+                    })
+
+                # Atualiza Histórico
+                df_novos = pd.DataFrame(novos_registros)
+                st.session_state.historico = pd.concat([df_novos, st.session_state.historico], ignore_index=True)
+                
+                # Salva para os botões de envio imediato
+                st.session_state.ultima_inspecao = {
+                    "setor": setor_sel,
+                    "funcionario": nome_input,
+                    "falhas": [r for r in novos_registros if r["Status"] == "❌ Não Conforme"]
+                }
+                st.success("✅ Inspeção salva no histórico!")
+
+    # Seções de Envio (Aparece fora do form após salvar)
+    if st.session_state.ultima_inspecao:
+        st.divider()
+        st.subheader("📲 Comunicar Não Conformidades")
+        dados = st.session_state.ultima_inspecao
+        
+        if not dados["falhas"]:
+            st.info("Tudo em conformidade nesta inspeção. Nada a enviar.")
+        else:
+            # Construção da mensagem apenas com as falhas
+            texto_base = f"🚨 *NÃO CONFORMIDADES - {dados['setor']}*\n"
+            texto_base += f"👤 *Responsável:* {dados['funcionario']}\n\n"
+            for item in dados["falhas"]:
+                texto_base += f"• *{item['Equipamento']}*: {item['Falha']}\n"
+            
+            col_z1, col_z2 = st.columns(2)
+            
+            # Botão WhatsApp
+            url_zap = f"https://wa.me/?text={urllib.parse.quote(texto_base)}"
+            col_z1.markdown(f"""
+                <a href="{url_zap}" target="_blank">
+                    <button style="width:100%; background-color:#25d366; color:white; border:none; padding:12px; border-radius:10px; font-weight:bold; cursor:pointer;">
+                        🟢 Enviar por WhatsApp
+                    </button>
+                </a>
+            """, unsafe_allow_html=True)
+            
+            # Botão E-mail
+            url_mail = f"mailto:?subject=Alerta de Nao Conformidade - {dados['setor']}&body={urllib.parse.quote(texto_base)}"
+            col_z2.markdown(f"""
+                <a href="{url_mail}" target="_blank">
+                    <button style="width:100%; height:44px; background-color:#f0f2f6; border:1px solid #dcdfe3; border-radius:10px; cursor:pointer; font-weight:bold;">
+                        📧 Enviar por E-mail
+                    </button>
+                </a>
+            """, unsafe_allow_html=True)
+        
+        if st.button("🔄 Iniciar Nova Limpa"):
+            st.session_state.ultima_inspecao = None
+            st.rerun()
 
 with tab2:
     st.header("📜 Histórico de Inspeções")
@@ -125,45 +176,27 @@ with tab2:
     else:
         with st.expander("🔍 Filtros de Consulta", expanded=True):
             f1, f2, f3, f4 = st.columns(4)
-            
             sel_setor = f1.multiselect("Setor:", options=sorted(st.session_state.historico["Setor"].unique()))
             sel_status = f2.multiselect("Status:", options=sorted(st.session_state.historico["Status"].unique()))
-            
-            lista_equips_existentes = sorted(st.session_state.historico["Equipamento"].unique())
-            sel_equip = f3.multiselect("Equipamento:", options=lista_equips_existentes)
-            
+            sel_equip = f3.multiselect("Equipamento:", options=sorted(st.session_state.historico["Equipamento"].unique()))
             sel_data = f4.date_input("Período:", value=[])
 
-        # Aplicação dos Filtros
         df_f = st.session_state.historico.copy()
         if sel_setor: df_f = df_f[df_f["Setor"].isin(sel_setor)]
         if sel_status: df_f = df_f[df_f["Status"].isin(sel_status)]
         if sel_equip: df_f = df_f[df_f["Equipamento"].isin(sel_equip)]
-        
         if isinstance(sel_data, list) and len(sel_data) == 2:
-            # Convertendo Data_Obj para date para comparação simples
             df_f = df_f[(df_f["Data_Obj"].dt.date >= sel_data[0]) & (df_f["Data_Obj"].dt.date <= sel_data[1])]
 
-        # Exibição (Mais recentes já estão no topo devido ao concat)
-        st.dataframe(
-            df_f[["Data", "Funcionário", "Setor", "Equipamento", "Status", "Falha"]], 
-            use_container_width=True, hide_index=True
-        )
+        st.dataframe(df_f[["Data", "Funcionário", "Setor", "Equipamento", "Status", "Falha"]], use_container_width=True, hide_index=True)
 
         st.divider()
-        e1, e2 = st.columns(2)
         try:
             pdf_b = bytes(gerar_pdf(df_f))
-            e1.download_button("📄 Gerar PDF Filtrado", pdf_b, "historico.pdf", "application/pdf", use_container_width=True)
-        except Exception as err: e1.error(f"Erro PDF: {err}")
-
-        resumo = f"Relatorio Zelo Kitchen\n"
-        for _, r in df_f.iterrows():
-            resumo += f"\n- {r['Equipamento']}: {r['Status']} | Falha: {r['Falha']}"
-        
-        url_mail = f"mailto:?subject=Relatorio de Inspecao&body={urllib.parse.quote(resumo)}"
-        e2.markdown(f'<a href="{url_mail}" target="_blank"><button style="width:100%; height:42px; cursor:pointer; border-radius:8px;">📧 Enviar por E-mail</button></a>', unsafe_allow_html=True)
+            st.download_button("📄 Baixar PDF do Histórico Filtrado", pdf_b, "historico.pdf", "application/pdf", use_container_width=True)
+        except Exception as err: st.error(f"Erro PDF: {err}")
 
         if st.button("🗑️ Resetar Tudo"):
             st.session_state.historico = pd.DataFrame(columns=["Data", "Funcionário", "Setor", "Equipamento", "Status", "Falha", "Data_Obj"])
+            st.session_state.ultima_inspecao = None
             st.rerun()
