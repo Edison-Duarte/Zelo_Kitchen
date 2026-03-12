@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime
 import urllib.parse
 from fpdf import FPDF
-import pytz  # Biblioteca para fuso horário
+import pytz
 
 # --- CONFIGURAÇÃO DE FUSO HORÁRIO ---
 fuso_br = pytz.timezone('America/Sao_Paulo')
@@ -96,11 +96,9 @@ with tab1:
             if not nome_input:
                 st.error("Digite o nome do funcionário!")
             else:
-                # AJUSTADO: Agora pegando horário de Brasília
                 agora_br = obter_agora_br()
                 data_str = agora_br.strftime("%d/%m/%Y %H:%M")
                 novos_registros = []
-                
                 for equip in lista_equip_atual:
                     h, f, e = respostas.get(f"{equip}_H"), respostas.get(f"{equip}_F"), respostas.get(f"{equip}_E")
                     falhas_lista = []
@@ -109,22 +107,20 @@ with tab1:
                     if e == "NÃO": falhas_lista.append("Estado Geral")
                     status = "✅ Conforme" if not falhas_lista else "❌ Não Conforme"
                     falha_txt = "Nenhuma" if not falhas_lista else ", ".join(falhas_lista)
-                    
                     novos_registros.append({
                         "Data": data_str, "Funcionário": nome_input, "Setor": setor_sel,
-                        "Equipamento": equip, "Status": status, "Falha": falha_txt, 
-                        "Data_Obj": agora_br.date() # Guardando apenas a data para o filtro
+                        "Equipamento": equip, "Status": status, "Falha": falha_txt, "Data_Obj": agora_br.date()
                     })
-                
                 df_novos = pd.DataFrame(novos_registros)
                 st.session_state.historico = pd.concat([df_novos, st.session_state.historico], ignore_index=True)
                 st.session_state.ultima_inspecao = {"setor": setor_sel, "funcionario": nome_input, "falhas": [r for r in novos_registros if r["Status"] == "❌ Não Conforme"]}
-                st.success(f"✅ Inspeção salva às {agora_br.strftime('%H:%M')} (Horário de Brasília)!")
+                st.success(f"✅ Inspeção salva às {agora_br.strftime('%H:%M')}!")
 
     if st.session_state.ultima_inspecao:
         st.divider()
-        st.subheader("📲 Comunicar Não Conformidades (Apenas desta inspeção)")
+        st.subheader("📲 Comunicar Não Conformidades")
         dados = st.session_state.ultima_inspecao
+        
         if not dados["falhas"]:
             st.info("Tudo em conformidade nesta inspeção.")
         else:
@@ -133,7 +129,9 @@ with tab1:
             cz1, cz2 = st.columns(2)
             cz1.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(texto_zap)}" target="_blank"><button style="width:100%; background-color:#25d366; color:white; border:none; padding:12px; border-radius:10px; font-weight:bold; cursor:pointer;">🟢 Enviar por WhatsApp</button></a>', unsafe_allow_html=True)
             cz2.markdown(f'<a href="mailto:?subject=Falhas - {dados["setor"]}&body={urllib.parse.quote(texto_zap)}" target="_blank"><button style="width:100%; height:44px; background-color:#f0f2f6; border:1px solid #dcdfe3; border-radius:10px; cursor:pointer; font-weight:bold;">📧 Enviar por E-mail</button></a>', unsafe_allow_html=True)
-        if st.button("🔄 Iniciar Nova Limpa"):
+        
+        # O BOTÃO QUE VOCÊ PEDIU: AGORA ELE ATUALIZA A PÁGINA COMPLETAMENTE
+        if st.button("🔄 Iniciar Nova Limpa", use_container_width=True):
             st.session_state.ultima_inspecao = None
             st.rerun()
 
@@ -147,8 +145,7 @@ with tab2:
             sel_setor = f1.multiselect("Setor:", options=sorted(st.session_state.historico["Setor"].unique()))
             sel_status = f2.multiselect("Status:", options=sorted(st.session_state.historico["Status"].unique()))
             sel_equip = f3.multiselect("Equipamento:", options=sorted(st.session_state.historico["Equipamento"].unique()))
-            # Filtro de data ajustado para o dia de Brasília
-            sel_data = f4.date_input("Período:", value=[], key="filtro_data")
+            sel_data = f4.date_input("Período:", value=[])
 
         df_f = st.session_state.historico.copy()
         if sel_setor: df_f = df_f[df_f["Setor"].isin(sel_setor)]
