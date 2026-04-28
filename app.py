@@ -7,21 +7,26 @@ import urllib.parse
 
 # --- CONFIGURAÇÕES INICIAIS ---
 st.set_page_config(page_title="Zelo Kitchen - Inspeção", page_icon="🍳", layout="wide")
-
-# Fuso horário para o registro correto da hora
 fuso_br = pytz.timezone('America/Sao_Paulo')
 
 def obter_agora_br():
     return datetime.now(fuso_br)
 
-# --- CONEXÃO COM GOOGLE SHEETS ---
+# --- CONEXÃO COM GOOGLE SHEETS (LIMPEZA AUTOMÁTICA DA CHAVE) ---
 def conectar():
     try:
-        # Criamos a conexão usando o segredo definido em [connections.gsheets]
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        return conn
+        # Puxamos as infos dos secrets
+        info = dict(st.secrets["connections"]["gsheets"])
+        
+        # LIMPEZA CRÍTICA: Remove barras invertidas extras e espaços fantasmas
+        if "private_key" in info:
+            # Transforma literal '\n' em quebra de linha e limpa espaços nas bordas
+            info["private_key"] = info["private_key"].replace("\\n", "\n").strip()
+        
+        # Conecta usando os dados limpos
+        return st.connection("gsheets", type=GSheetsConnection, **info)
     except Exception as e:
-        st.error(f"Erro ao configurar conexão: {e}")
+        st.error(f"Erro na conexão: {e}")
         return None
 
 conn = conectar()
@@ -29,7 +34,6 @@ conn = conectar()
 def carregar_dados():
     if conn:
         try:
-            # ttl=0 força o Streamlit a buscar o dado mais atual da planilha
             return conn.read(ttl=0)
         except Exception as e:
             st.error(f"Erro ao ler planilha: {e}")
@@ -57,7 +61,7 @@ tab1, tab2 = st.tabs(["📝 Nova Inspeção", "📜 Histórico Permanente"])
 with tab1:
     if st.session_state.ultima_inspecao:
         dados = st.session_state.ultima_inspecao
-        st.success(f"✅ Inspeção de {dados['funcionario']} salva com sucesso!")
+        st.success(f"✅ Inspeção salva com sucesso!")
         
         if dados["falhas"]:
             texto_falha = f"🚨 *FALHAS DETECTADAS - {dados['setor']}*\n\n"
@@ -80,8 +84,6 @@ with tab1:
 
         if setor_sel != "Selecione...":
             respostas = []
-            st.info(f"Inspecionando: **{setor_sel}**")
-            
             for item in itens_setores[setor_sel]:
                 with st.container(border=True):
                     st.write(f"**{item}**")
@@ -93,21 +95,17 @@ with tab1:
 
             if st.button("🚀 FINALIZAR E SALVAR", type="primary", use_container_width=True):
                 if not nome_func:
-                    st.error("Por favor, digite seu nome antes de salvar.")
+                    st.error("Diga seu nome!")
                 else:
-                    with st.spinner("Salvando na nuvem..."):
+                    with st.spinner("Gravando na planilha..."):
                         agora = obter_agora_br()
                         novas_linhas = []
                         falhas_lista = []
                         
                         for r in respostas:
-                            problemas = []
-                            if r["H"] == "NÃO": problemas.append("Higiene")
-                            if r["F"] == "NÃO": problemas.append("Funcionamento")
-                            if r["E"] == "NÃO": problemas.append("Estado Geral")
-                            
-                            status = "✅ Conforme" if not problemas else "❌ Não Conforme"
-                            obs = ", ".join(problemas) if problemas else "Nenhuma"
+                            probs = [n for n, v in zip(["Higiene", "Funcionamento", "Estado Geral"], [r["H"], r["F"], r["E"]]) if v == "NÃO"]
+                            status = "✅ Conforme" if not probs else "❌ Não Conforme"
+                            obs = ", ".join(probs) if probs else "Nenhuma"
                             
                             novas_linhas.append({
                                 "Data/Hora": agora.strftime("%d/%m/%Y %H:%M"),
@@ -117,45 +115,22 @@ with tab1:
                                 "Status": status,
                                 "Falhas": obs
                             })
-                            
-                            if problemas:
-                                falhas_lista.append({"Equipamento": r["Equipamento"], "Falha": obs})
-                        
-                        # Processo de salvamento
-                        df_existente = carregar_dados()
-                        df_novo = pd.DataFrame(novas_linhas)
-                        df_final = pd.concat([df_existente, df_novo], ignore_index=True)
+                            if probs: falhas_lista.append({"Equipamento": r["Equipamento"], "Falha": obs})
                         
                         try:
+                            df_existente = carregar_dados()
+                            df_novo = pd.DataFrame(novas_linhas)
+                            df_final = pd.concat([df_existente, df_novo], ignore_index=True)
                             conn.update(data=df_final)
-                            st.session_state.ultima_inspecao = {
-                                "funcionario": nome_func,
-                                "setor": setor_sel,
-                                "falhas": falhas_lista
-                            }
+                            st.session_state.ultima_inspecao = {"funcionario": nome_func, "setor": setor_sel, "falhas": falhas_lista}
                             st.rerun()
                         except Exception as e:
-                            st.error(f"Erro ao gravar no Google Sheets: {e}")
+                            st.error(f"Erro ao salvar: {e}")
 
 with tab2:
-    st.header("📜 Histórico de Inspeções")
+    st.header("📜 Histórico")
     df_sheets = carregar_dados()
-    
     if not df_sheets.empty:
-        # Filtros básicos
-        col_f1, col_f2 = st.columns(2)
-        f_setor = col_f1.multiselect("Filtrar por Setor:", df_sheets["Setor"].unique())
-        f_status = col_f2.multiselect("Filtrar por Status:", df_sheets["Status"].unique())
-        
-        df_filtrado = df_sheets.copy()
-        if f_setor:
-            df_filtrado = df_filtrado[df_filtrado["Setor"].isin(f_setor)]
-        if f_status:
-            df_filtrado = df_filtrado[df_filtrado["Status"].isin(f_status)]
-            
-        st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
-        
-        csv = df_filtrado.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Baixar Planilha (CSV)", csv, "inspecao_zelo.csv", "text/csv")
+        st.dataframe(df_sheets, use_container_width=True, hide_index=True)
     else:
-        st.info("Nenhum dado encontrado ou planilha vazia.")
+        st.info("Planilha vazia ou conexão aguardando...")
