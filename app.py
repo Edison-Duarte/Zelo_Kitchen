@@ -20,7 +20,7 @@ st.set_page_config(page_title="Zelo Kitchen - Nuvem", page_icon="🍳", layout="
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def carregar_dados():
-    return conn.read(ttl="0") # ttl=0 força a leitura do dado mais recente
+    return conn.read(ttl=0) # ttl=0 força a leitura do dado mais recente
 
 if 'ultima_inspecao' not in st.session_state:
     st.session_state.ultima_inspecao = None
