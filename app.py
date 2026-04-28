@@ -13,22 +13,26 @@ def obter_agora_br():
     return datetime.now(fuso_br)
 
 # --- CONEXÃO COM GOOGLE SHEETS (LIMPEZA AUTOMÁTICA DA CHAVE) ---
+# --- CONEXÃO COM GOOGLE SHEETS (CORRIGIDA) ---
 def conectar():
     try:
-        # Puxamos as infos dos secrets
+        # 1. Carregamos as informações dos secrets como um dicionário comum
         info = dict(st.secrets["connections"]["gsheets"])
         
-        # LIMPEZA CRÍTICA: Remove barras invertidas extras e espaços fantasmas
+        # 2. LIMPEZA DA CHAVE: Remove barras invertidas extras
         if "private_key" in info:
-            # Transforma literal '\n' em quebra de linha e limpa espaços nas bordas
             info["private_key"] = info["private_key"].replace("\\n", "\n").strip()
         
-        # Conecta usando os dados limpos
+        # 3. REMOVE O 'type' DO DICIONÁRIO: 
+        # O Streamlit já recebe o type=GSheetsConnection manualmente
+        if "type" in info:
+            del info["type"]
+            
+        # 4. Conecta usando o dicionário limpo
         return st.connection("gsheets", type=GSheetsConnection, **info)
     except Exception as e:
         st.error(f"Erro na conexão: {e}")
         return None
-
 conn = conectar()
 
 def carregar_dados():
