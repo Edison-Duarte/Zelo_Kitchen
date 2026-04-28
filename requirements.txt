@@ -1,4 +1,5 @@
-st-gsheets-connection
+streamlit
 pandas
-pytz
 fpdf2
+pytz
+gspread
