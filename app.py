@@ -1,31 +1,46 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
-import urllib.parse
-from fpdf import FPDF
 import pytz
-from streamlit_gsheets import GSheetsConnection
+import urllib.parse
 
-# --- CONFIGURAÇÃO DE FUSO HORÁRIO ---
+# --- CONFIGURAÇÕES INICIAIS ---
+st.set_page_config(page_title="Zelo Kitchen - Inspeção", page_icon="🍳", layout="wide")
+
+# Fuso horário para o registro correto da hora
 fuso_br = pytz.timezone('America/Sao_Paulo')
 
 def obter_agora_br():
     return datetime.now(fuso_br)
 
-# Configuração da página
-st.set_page_config(page_title="Zelo Kitchen - Nuvem", page_icon="🍳", layout="wide")
+# --- CONEXÃO COM GOOGLE SHEETS ---
+def conectar():
+    try:
+        # Criamos a conexão usando o segredo definido em [connections.gsheets]
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        return conn
+    except Exception as e:
+        st.error(f"Erro ao configurar conexão: {e}")
+        return None
 
-# --- CONEXÃO GOOGLE SHEETS ---
-# Configuração via Secrets (URL da planilha)
-conn = st.connection("gsheets", type=GSheetsConnection)
+conn = conectar()
 
 def carregar_dados():
-    return conn.read(ttl=0) # ttl=0 força a leitura do dado mais recente
+    if conn:
+        try:
+            # ttl=0 força o Streamlit a buscar o dado mais atual da planilha
+            return conn.read(ttl=0)
+        except Exception as e:
+            st.error(f"Erro ao ler planilha: {e}")
+            return pd.DataFrame()
+    return pd.DataFrame()
 
+# --- ESTADO DA SESSÃO ---
 if 'ultima_inspecao' not in st.session_state:
     st.session_state.ultima_inspecao = None
 
-# --- DADOS ESTÁTICOS ---
+# --- DADOS DO FORMULÁRIO ---
 setores = ["Espaço Café", "Cozinha", "Mirante", "Refeitório"]
 itens_setores = {
     "Espaço Café": ["Estufa quente", "Estufa fria", "Geladeiras balcão", "Frigobares", "Máquina de café expresso"],
@@ -35,97 +50,112 @@ itens_setores = {
 }
 
 # --- INTERFACE ---
-st.title("🍳 Sistema de Inspeção Zelo Kitchen (Nuvem)")
+st.title("🍳 Sistema de Inspeção Zelo Kitchen")
 
 tab1, tab2 = st.tabs(["📝 Nova Inspeção", "📜 Histórico Permanente"])
 
 with tab1:
     if st.session_state.ultima_inspecao:
         dados = st.session_state.ultima_inspecao
-        st.success(f"✅ Inspeção salva no Google Sheets!")
+        st.success(f"✅ Inspeção de {dados['funcionario']} salva com sucesso!")
         
         if dados["falhas"]:
-            texto_base = f"🚨 *NÃO CONFORMIDADES - {dados['setor']}*\n👤 *Por:* {dados['funcionario']}\n\n"
-            for item in dados["falhas"]:
-                texto_base += f"• *{item['Equipamento']}*: {item['Falha']}\n"
+            texto_falha = f"🚨 *FALHAS DETECTADAS - {dados['setor']}*\n\n"
+            for f in dados["falhas"]:
+                texto_falha += f"• {f['Equipamento']}: {f['Falha']}\n"
             
-            c_z1, c_z2 = st.columns(2)
-            url_zap = f"https://wa.me/?text={urllib.parse.quote(texto_base)}"
-            c_z1.markdown(f'<a href="{url_zap}" target="_blank"><button style="background-color:#25d366; color:white; width:100%; border:none; padding:12px; border-radius:10px; font-weight:bold; cursor:pointer;">🟢 Enviar WhatsApp</button></a>', unsafe_allow_html=True)
-            
-            url_mail = f"mailto:?subject=Falhas {dados['setor']}&body={urllib.parse.quote(texto_base)}"
-            c_z2.markdown(f'<a href="{url_mail}" target="_blank"><button style="width:100%; height:44px; background-color:#f0f2f6; border:1px solid #dcdfe3; border-radius:10px; cursor:pointer; font-weight:bold;">📧 Enviar E-mail</button></a>', unsafe_allow_html=True)
+            st.warning("Falhas detectadas! Comunique os responsáveis:")
+            c1, c2 = st.columns(2)
+            c1.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(texto_falha)}" target="_blank"><button style="width:100%; background-color:#25d366; color:white; border:none; padding:12px; border-radius:10px; cursor:pointer;">🟢 Enviar WhatsApp</button></a>', unsafe_allow_html=True)
+            c2.markdown(f'<a href="mailto:?subject=Relato de Falha Kitchen&body={urllib.parse.quote(texto_falha)}" target="_blank"><button style="width:100%; height:44px; border-radius:10px; cursor:pointer;">📧 Enviar E-mail</button></a>', unsafe_allow_html=True)
         
-        if st.button("🔄 INICIAR NOVA INSPEÇÃO", use_container_width=True):
+        if st.button("🔄 Realizar Nova Inspeção", use_container_width=True):
             st.session_state.ultima_inspecao = None
             st.rerun()
-
     else:
-        nome_input = st.text_input("👤 Nome do Funcionário:")
-        setor_sel = st.selectbox("📍 Setor:", ["Selecione..."] + setores)
+        with st.expander("Informações do Inspetor", expanded=True):
+            col_nome, col_setor = st.columns(2)
+            nome_func = col_nome.text_input("Seu Nome:")
+            setor_sel = col_setor.selectbox("Setor a inspecionar:", ["Selecione..."] + setores)
 
         if setor_sel != "Selecione...":
-            respostas = {}
-            for equip in itens_setores[setor_sel]:
-                st.subheader(f"🔹 {equip}")
-                ch, cf, ce = st.columns(3)
-                respostas[f"{equip}_H"] = ch.radio("Higiene", ["OK", "NÃO"], key=f"{equip}h", horizontal=True)
-                respostas[f"{equip}_F"] = cf.radio("Funcionamento", ["OK", "NÃO"], key=f"{equip}f", horizontal=True)
-                respostas[f"{equip}_E"] = ce.radio("Estado Geral", ["OK", "NÃO"], key=f"{equip}e", horizontal=True)
+            respostas = []
+            st.info(f"Inspecionando: **{setor_sel}**")
             
-            if st.button("🚀 SALVAR NA NUVEM", use_container_width=True, type="primary"):
-                if not nome_input:
-                    st.error("Digite seu nome!")
+            for item in itens_setores[setor_sel]:
+                with st.container(border=True):
+                    st.write(f"**{item}**")
+                    c1, c2, c3 = st.columns(3)
+                    h = c1.radio(f"Higiene", ["OK", "NÃO"], key=f"h_{item}", horizontal=True)
+                    f = c2.radio(f"Funcionamento", ["OK", "NÃO"], key=f"f_{item}", horizontal=True)
+                    e = c3.radio(f"Estado Geral", ["OK", "NÃO"], key=f"e_{item}", horizontal=True)
+                    respostas.append({"Equipamento": item, "H": h, "F": f, "E": e})
+
+            if st.button("🚀 FINALIZAR E SALVAR", type="primary", use_container_width=True):
+                if not nome_func:
+                    st.error("Por favor, digite seu nome antes de salvar.")
                 else:
-                    agora_br = obter_agora_br()
-                    novos_dados = []
-                    for equip in itens_setores[setor_sel]:
-                        h, f, e = respostas[f"{equip}_H"], respostas[f"{equip}_F"], respostas[f"{equip}_E"]
-                        falhas = [n for n, v in zip(["Higiene", "Funcionamento", "Estado Geral"], [h, f, e]) if v == "NÃO"]
+                    with st.spinner("Salvando na nuvem..."):
+                        agora = obter_agora_br()
+                        novas_linhas = []
+                        falhas_lista = []
                         
-                        novos_dados.append({
-                            "Data": agora_br.strftime("%d/%m/%Y %H:%M"),
-                            "Funcionário": nome_input,
-                            "Setor": setor_sel,
-                            "Equipamento": equip,
-                            "Status": "✅ Conforme" if not falhas else "❌ Não Conforme",
-                            "Falha": "Nenhuma" if not falhas else ", ".join(falhas),
-                            "Data_Obj": agora_br.strftime("%Y-%m-%d")
-                        })
-                    
-                    # ENVIAR PARA O GOOGLE SHEETS
-                    df_existente = carregar_dados()
-                    df_final = pd.concat([pd.DataFrame(novos_dados), df_existente], ignore_index=True)
-                    conn.update(data=df_final)
-                    
-                    st.session_state.ultima_inspecao = {
-                        "setor": setor_sel, "funcionario": nome_input, 
-                        "falhas": [r for r in novos_dados if r["Status"] == "❌ Não Conforme"]
-                    }
-                    st.rerun()
+                        for r in respostas:
+                            problemas = []
+                            if r["H"] == "NÃO": problemas.append("Higiene")
+                            if r["F"] == "NÃO": problemas.append("Funcionamento")
+                            if r["E"] == "NÃO": problemas.append("Estado Geral")
+                            
+                            status = "✅ Conforme" if not problemas else "❌ Não Conforme"
+                            obs = ", ".join(problemas) if problemas else "Nenhuma"
+                            
+                            novas_linhas.append({
+                                "Data/Hora": agora.strftime("%d/%m/%Y %H:%M"),
+                                "Funcionário": nome_func,
+                                "Setor": setor_sel,
+                                "Equipamento": r["Equipamento"],
+                                "Status": status,
+                                "Falhas": obs
+                            })
+                            
+                            if problemas:
+                                falhas_lista.append({"Equipamento": r["Equipamento"], "Falha": obs})
+                        
+                        # Processo de salvamento
+                        df_existente = carregar_dados()
+                        df_novo = pd.DataFrame(novas_linhas)
+                        df_final = pd.concat([df_existente, df_novo], ignore_index=True)
+                        
+                        try:
+                            conn.update(data=df_final)
+                            st.session_state.ultima_inspecao = {
+                                "funcionario": nome_func,
+                                "setor": setor_sel,
+                                "falhas": falhas_lista
+                            }
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao gravar no Google Sheets: {e}")
 
 with tab2:
-    st.header("📜 Histórico Permanente (Google Sheets)")
+    st.header("📜 Histórico de Inspeções")
     df_sheets = carregar_dados()
     
-    if df_sheets.empty:
-        st.info("Planilha vazia.")
+    if not df_sheets.empty:
+        # Filtros básicos
+        col_f1, col_f2 = st.columns(2)
+        f_setor = col_f1.multiselect("Filtrar por Setor:", df_sheets["Setor"].unique())
+        f_status = col_f2.multiselect("Filtrar por Status:", df_sheets["Status"].unique())
+        
+        df_filtrado = df_sheets.copy()
+        if f_setor:
+            df_filtrado = df_filtrado[df_filtrado["Setor"].isin(f_setor)]
+        if f_status:
+            df_filtrado = df_filtrado[df_filtrado["Status"].isin(f_status)]
+            
+        st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+        
+        csv = df_filtrado.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Baixar Planilha (CSV)", csv, "inspecao_zelo.csv", "text/csv")
     else:
-        # Filtros
-        f1, f2 = st.columns(2)
-        filt_setor = f1.multiselect("Filtrar Setor:", setores)
-        filt_status = f2.multiselect("Filtrar Status:", ["✅ Conforme", "❌ Não Conforme"])
-        
-        df_view = df_sheets.copy()
-        if filt_setor: df_view = df_view[df_view["Setor"].isin(filt_setor)]
-        if filt_status: df_view = df_view[df_view["Status"].isin(filt_status)]
-        
-        st.dataframe(df_view, use_container_width=True, hide_index=True)
-        
-        # Botão E-mail Histórico
-        resumo_h = f"Relatorio Auditoria - {obter_agora_br().strftime('%d/%m/%Y')}\n\n"
-        for _, r in df_view.head(50).iterrows(): # Limite de 50 para o link não quebrar
-            resumo_h += f"{r['Data']} | {r['Equipamento']}: {r['Status']}\n"
-        
-        url_mail_h = f"mailto:?subject=Historico Kitchen&body={urllib.parse.quote(resumo_h)}"
-        st.markdown(f'<a href="{url_mail_h}" target="_blank"><button style="width:100%; height:40px; border-radius:10px; cursor:pointer;">📧 Enviar Histórico por E-mail</button></a>', unsafe_allow_html=True)
+        st.info("Nenhum dado encontrado ou planilha vazia.")
