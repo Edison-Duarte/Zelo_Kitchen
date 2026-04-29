@@ -9,30 +9,41 @@ import urllib.parse
 st.set_page_config(page_title="Zelo Kitchen - Inspeção", page_icon="🍳", layout="wide")
 fuso_br = pytz.timezone('America/Sao_Paulo')
 
-def obter_agora_br():
-    return datetime.now(fuso_br)
-
-# --- CONEXÃO COM GOOGLE SHEETS (VERSÃO FINAL BLINDADA) ---
+# --- CONEXÃO COM GOOGLE SHEETS (VERSÃO CORRIGIDA PARA SERVICE_ACCOUNT) ---
 def conectar():
     try:
-        # 1. Pegamos as informações dos secrets
+        # 1. Pegamos todas as informações dos secrets
         info = dict(st.secrets["connections"]["gsheets"])
         
-        # 2. Limpeza da chave privada (resolve o erro de InvalidByte/PEM)
+        # 2. Guardamos a URL da planilha e o TTL, depois removemos do dicionário
+        url_planilha = info.get("spreadsheet")
+        
+        # 3. Limpeza da chave privada
         if "private_key" in info:
             info["private_key"] = info["private_key"].replace("\\n", "\n").strip()
         
-        # 3. Guardamos a URL e limpamos o dicionário para a conexão
-        url_planilha = info.get("spreadsheet")
-        
-        # Removemos o que não é credencial para evitar conflitos no st.connection
-        para_remover = ["type", "spreadsheet", "ttl"]
-        for item in para_remover:
-            if item in info:
-                del info[item]
+        # 4. CRIAMOS O DICIONÁRIO DE CREDENCIAIS
+        # A biblioteca espera que os dados do JSON estejam limpos aqui
+        credentials_dict = {
+            "type": "service_account",
+            "project_id": info.get("project_id"),
+            "private_key_id": info.get("private_key_id"),
+            "private_key": info.get("private_key"),
+            "client_email": info.get("client_email"),
+            "client_id": info.get("client_id"),
+            "auth_uri": info.get("auth_uri"),
+            "token_uri": info.get("token_uri"),
+            "auth_provider_x509_cert_url": info.get("auth_provider_x509_cert_url"),
+            "client_x509_cert_url": info.get("client_x509_cert_url"),
+            "universe_domain": info.get("universe_domain")
+        }
             
-        # 4. Criamos a conexão apenas com as credenciais
-        conn = st.connection("gsheets", type=GSheetsConnection, **info)
+        # 5. Conectamos passando o dicionário formatado como 'service_account_info'
+        conn = st.connection(
+            "gsheets", 
+            type=GSheetsConnection, 
+            service_account_info=credentials_dict
+        )
         return conn, url_planilha
     except Exception as e:
         st.error(f"Erro na configuração da conexão: {e}")
