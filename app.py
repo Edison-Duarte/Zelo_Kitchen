@@ -22,7 +22,6 @@ def carregar_dados():
     try:
         return conn.read(ttl=0)
     except Exception as e:
-        # Se a planilha estiver vazia, retorna um DataFrame com as colunas certas
         return pd.DataFrame(columns=["Data/Hora", "Funcionário", "Setor", "Equipamento", "Status", "Falhas"])
 
 # --- ESTRUTURA DO CHECKLIST ---
@@ -54,7 +53,6 @@ with tab1:
             st.info(f"📋 Itens do Setor: **{setor_selecionado}**")
             respostas = []
             
-            # Monta o checklist visualmente
             for item in itens_setores[setor_selecionado]:
                 with st.container(border=True):
                     st.write(f"**{item}**")
@@ -64,14 +62,14 @@ with tab1:
                     e = c3.radio(f"Estado Geral", ["OK", "NÃO"], key=f"e_{item}", horizontal=True)
                     respostas.append({"Equipamento": item, "H": h, "F": f, "E": e})
 
-           if st.button("🚀 FINALIZAR E SALVAR", type="primary", use_container_width=True):
+            # ESTA LINHA ABAIXO PRECISA ESTAR ALINHADA COM O "for" ACIMA
+            if st.button("🚀 FINALIZAR E SALVAR", type="primary", use_container_width=True):
                 if not nome_inspetor:
                     st.error("Por favor, digite seu nome antes de salvar.")
                 else:
                     with st.spinner("Enviando para a planilha..."):
                         agora = obter_agora_br().strftime("%d/%m/%Y %H:%M")
                         novas_entradas = []
-                        
                         for r in respostas:
                             falhas = []
                             if r["H"] == "NÃO": falhas.append("Higiene")
@@ -91,21 +89,16 @@ with tab1:
                             df_atual = carregar_dados()
                             df_novo = pd.DataFrame(novas_entradas)
                             df_final = pd.concat([df_atual, df_novo], ignore_index=True)
-                            
-                            # Tenta atualizar
-                            resultado = conn.update(data=df_final)
-                            
-                            # Se chegou aqui ou retornou Response 200, deu certo!
+                            conn.update(data=df_final)
                             st.session_state.sucesso = True
                             st.rerun()
-                            
                         except Exception as e:
-                            # Se o erro for apenas a mensagem de "Response 200", ignoramos e tratamos como sucesso
                             if "200" in str(e):
                                 st.session_state.sucesso = True
                                 st.rerun()
                             else:
-                                st.error(f"Erro real ao salvar: {e}")
+                                st.error(f"Erro ao salvar: {e}")
+
 with tab2:
     st.subheader("📜 Histórico de Registros")
     dados_hist = carregar_dados()
