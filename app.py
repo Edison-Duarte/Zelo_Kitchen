@@ -12,33 +12,40 @@ fuso_br = pytz.timezone('America/Sao_Paulo')
 def obter_agora_br():
     return datetime.now(fuso_br)
 
-# --- CONEXÃO COM GOOGLE SHEETS (LIMPEZA AUTOMÁTICA DA CHAVE) ---
-# --- CONEXÃO COM GOOGLE SHEETS (CORRIGIDA) ---
+# --- CONEXÃO COM GOOGLE SHEETS (VERSÃO FINAL BLINDADA) ---
 def conectar():
     try:
-        # 1. Carregamos as informações dos secrets como um dicionário comum
+        # 1. Pegamos as informações dos secrets
         info = dict(st.secrets["connections"]["gsheets"])
         
-        # 2. LIMPEZA DA CHAVE: Remove barras invertidas extras
+        # 2. Limpeza da chave privada (resolve o erro de InvalidByte/PEM)
         if "private_key" in info:
             info["private_key"] = info["private_key"].replace("\\n", "\n").strip()
         
-        # 3. REMOVE O 'type' DO DICIONÁRIO: 
-        # O Streamlit já recebe o type=GSheetsConnection manualmente
-        if "type" in info:
-            del info["type"]
+        # 3. Guardamos a URL e limpamos o dicionário para a conexão
+        url_planilha = info.get("spreadsheet")
+        
+        # Removemos o que não é credencial para evitar conflitos no st.connection
+        para_remover = ["type", "spreadsheet", "ttl"]
+        for item in para_remover:
+            if item in info:
+                del info[item]
             
-        # 4. Conecta usando o dicionário limpo
-        return st.connection("gsheets", type=GSheetsConnection, **info)
+        # 4. Criamos a conexão apenas com as credenciais
+        conn = st.connection("gsheets", type=GSheetsConnection, **info)
+        return conn, url_planilha
     except Exception as e:
-        st.error(f"Erro na conexão: {e}")
-        return None
-conn = conectar()
+        st.error(f"Erro na configuração da conexão: {e}")
+        return None, None
+
+# Inicializamos a conexão globalmente
+conn, url_planilha = conectar()
 
 def carregar_dados():
-    if conn:
+    if conn and url_planilha:
         try:
-            return conn.read(ttl=0)
+            # Passamos a URL aqui para evitar erro de 'unexpected argument'
+            return conn.read(spreadsheet=url_planilha, ttl=0)
         except Exception as e:
             st.error(f"Erro ao ler planilha: {e}")
             return pd.DataFrame()
@@ -99,7 +106,7 @@ with tab1:
 
             if st.button("🚀 FINALIZAR E SALVAR", type="primary", use_container_width=True):
                 if not nome_func:
-                    st.error("Diga seu nome!")
+                    st.error("Por favor, digite seu nome.")
                 else:
                     with st.spinner("Gravando na planilha..."):
                         agora = obter_agora_br()
@@ -125,7 +132,10 @@ with tab1:
                             df_existente = carregar_dados()
                             df_novo = pd.DataFrame(novas_linhas)
                             df_final = pd.concat([df_existente, df_novo], ignore_index=True)
-                            conn.update(data=df_final)
+                            
+                            # Comando de update corrigido com a URL separada
+                            conn.update(spreadsheet=url_planilha, data=df_final)
+                            
                             st.session_state.ultima_inspecao = {"funcionario": nome_func, "setor": setor_sel, "falhas": falhas_lista}
                             st.rerun()
                         except Exception as e:
@@ -137,4 +147,4 @@ with tab2:
     if not df_sheets.empty:
         st.dataframe(df_sheets, use_container_width=True, hide_index=True)
     else:
-        st.info("Planilha vazia ou conexão aguardando...")
+        st.info("Planilha vazia ou carregando dados...")
