@@ -3,31 +3,55 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 import pytz
-import urllib.parse
 
 # --- CONFIGURAÇÕES DA PÁGINA ---
 st.set_page_config(page_title="Zelo Kitchen - Inspeção", page_icon="🍳", layout="wide")
 
-# Configuração de fuso horário
 fuso_br = pytz.timezone('America/Sao_Paulo')
 def obter_agora_br():
     return datetime.now(fuso_br)
 
-# --- LIGAÇÃO AO GOOGLE SHEETS ---
-# O Streamlit liga-se automaticamente usando os dados do [connections.gsheets] nos Secrets
-try:
-    conn = st.connection("gsheets", type=GSheetsConnection)
-except Exception as e:
-    st.error(f"Erro ao estabelecer conexão: {e}")
+# --- CONEXÃO COM LIMPEZA AUTOMÁTICA ---
+def conectar_seguro():
+    try:
+        # Puxa os dados brutos dos secrets
+        s = st.secrets["connections"]["gsheets"]
+        
+        # LIMPEZA CRÍTICA: Remove espaços extras e garante que as quebras de linha sejam reais
+        # O .replace("\\n", "\n") resolve o erro de PEM na maioria dos casos
+        private_key = s["private_key"].replace("\\n", "\n").strip()
+        
+        # Reconstrói o dicionário de credenciais de forma limpa
+        creds = {
+            "type": s["type"],
+            "project_id": s["project_id"],
+            "private_key_id": s["private_key_id"],
+            "private_key": private_key,
+            "client_email": s["client_email"],
+            "client_id": s["client_id"],
+            "auth_uri": s["auth_uri"],
+            "token_uri": s["token_uri"],
+            "auth_provider_x509_cert_url": s["auth_provider_x509_cert_url"],
+            "client_x509_cert_url": s["client_x509_cert_url"]
+        }
+        
+        return st.connection("gsheets", type=GSheetsConnection, service_account_info=creds)
+    except Exception as e:
+        st.error(f"Erro na limpeza da chave: {e}")
+        return None
+
+conn = conectar_seguro()
 
 def carregar_dados():
-    try:
-        # Lê os dados da planilha configurada nos Secrets
-        return conn.read(ttl=0)
-    except Exception as e:
-        st.error(f"Erro ao ler dados da planilha: {e}")
-        return pd.DataFrame()
+    if conn:
+        try:
+            return conn.read(spreadsheet=st.secrets["connections"]["gsheets"]["spreadsheet"], ttl=0)
+        except Exception as e:
+            st.error(f"Erro ao ler: {e}")
+            return pd.DataFrame()
+    return pd.DataFrame()
 
+# ... (restante do código das abas continua igual)
 # --- ESTADO DA SESSÃO ---
 if 'ultima_inspecao' not in st.session_state:
     st.session_state.ultima_inspecao = None
