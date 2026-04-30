@@ -36,7 +36,7 @@ itens_setores = {
     "Refeitório": ["Lava Louças", "Geladeira Resfriados", "Rechaud"]
 }
 
-st.title("🍳 Sistema de Inspeção Zelo Kitchen")
+st.title("🍳 Sistema de Inspeção - Zelo Kitchen")
 
 tab1, tab2 = st.tabs(["📝 Nova Inspeção", "📜 Histórico"])
 
