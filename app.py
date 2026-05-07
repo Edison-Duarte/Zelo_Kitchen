@@ -13,6 +13,7 @@ st.set_page_config(page_title="Zelo Kitchen - Inspeção", page_icon="🍳", lay
 # CSS para garantir quebras de linha e visual limpo
 st.markdown("""
     <style>
+        /* Força o texto a pular linha na tabela de histórico */
         [data-testid="stDataFrame"] td {
             white-space: normal !important;
             word-wrap: break-word !important;
@@ -30,17 +31,31 @@ def obter_agora_br():
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
 except Exception as e:
-    st.error(f"Erro na conexão: {e}")
+    st.error(f"Erro na conexão com o banco de dados: {e}")
 
 def carregar_dados():
     try:
         df = conn.read(ttl=0)
+        # 1. Limpeza: Remove colunas "fantasmas" (Unnamed)
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+        
         if not df.empty and "Data/Hora" in df.columns:
+            # Garante que a data seja lida corretamente
             df["Data/Hora"] = pd.to_datetime(df["Data/Hora"], dayfirst=True)
-        return df
+            
+            # 2. Otimização: Cria colunas separadas no padrão Brasileiro
+            df["Data"] = df["Data/Hora"].dt.strftime('%d/%m/%Y')
+            df["Hora"] = df["Data/Hora"].dt.strftime('%H:%M')
+        
+        # 3. Otimização: Seleciona apenas as colunas únicas e corretas
+        # Isso elimina os duplicados como "Equipamento" vs "Equipamentos"
+        colunas_desejadas = ["Data", "Hora", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema"]
+        
+        # Filtra apenas o que realmente deve aparecer
+        df_limpo = df[[c for c in colunas_desejadas if c in df.columns]]
+        return df_limpo
     except Exception as e:
-        return pd.DataFrame(columns=["Data/Hora", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema"])
+        return pd.DataFrame(columns=["Data", "Hora", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema"])
 
 # --- FUNÇÃO PARA GERAR PDF ---
 def gerar_pdf(df_filtrado):
@@ -55,14 +70,14 @@ def gerar_pdf(df_filtrado):
     for i, row in df_filtrado.iterrows():
         pdf.set_font("Arial", "B", 11)
         pdf.set_fill_color(240, 240, 240)
-        pdf.cell(190, 8, f"Equipamento: {row['Equipamento']} ({row['Setor']})", ln=True, fill=True)
+        pdf.cell(190, 8, f"{row.get('Equipamento', 'N/A')} ({row.get('Setor', 'N/A')})", ln=True, fill=True)
         pdf.set_font("Arial", "", 10)
-        desc = str(row['Descrição do Problema']).replace('\n', ' ') if row['Descrição do Problema'] else "Nenhuma"
-        pdf.multi_cell(190, 7, f"Data: {row['Data/Hora'].strftime('%d/%m/%Y %H:%M')}\nInspetor: {row['Funcionário']}\nFalha: {row['Falhas']}\nDescricao: {desc}")
+        desc = str(row.get('Descrição do Problema', '')).replace('\n', ' ') if row.get('Descrição do Problema') else "Nenhuma"
+        pdf.multi_cell(190, 7, f"Data: {row.get('Data', '')} {row.get('Hora', '')}\nInspetor: {row.get('Funcionário', '')}\nFalha: {row.get('Falhas', '')}\nDescricao: {desc}")
         pdf.ln(5)
     return pdf.output(dest='S').encode('latin-1')
 
-# --- ESTRUTURA ---
+# --- ESTRUTURA DO CHECKLIST ---
 setores_lista = ["Espaço Café", "Cozinha", "Mirante", "Refeitório"]
 itens_setores = {
     "Espaço Café": ["Estufa quente", "Estufa fria", "Geladeiras balcão", "Frigobares", "Máquina de café expresso"],
@@ -71,13 +86,13 @@ itens_setores = {
     "Refeitório": ["Lava Louças", "Geladeira Resfriados", "Rechaud"]
 }
 
-st.title("🍳 Sistema de Inspeção - Zelo Kitchen")
+st.title("🍳 Sistema de Inspeção Zelo Kitchen")
 tab1, tab2 = st.tabs(["📝 Nova Inspeção", "📜 Histórico"])
 
 # --- ABA 1: NOVA INSPEÇÃO ---
 with tab1:
     if 'sucesso' in st.session_state and st.session_state.sucesso:
-        st.success("✅ Inspeção salva com sucesso!")
+        st.success("✅ Inspeção salva com sucesso na planilha!")
         if st.button("Realizar Nova Inspeção"):
             st.session_state.sucesso = False
             st.rerun()
@@ -96,41 +111,68 @@ with tab1:
                     h = c1.radio(f"Higiene", ["OK", "NÃO"], key=f"h_{item}", horizontal=True)
                     f = c2.radio(f"Funcionamento", ["OK", "NÃO"], key=f"f_{item}", horizontal=True)
                     e = c3.radio(f"Estado Geral", ["OK", "NÃO"], key=f"e_{item}", horizontal=True)
-                    obs = ""
+                    
+                    detalhes_obs = ""
                     if any(x == "NÃO" for x in [h, f, e]):
-                        obs = st.text_area(f"Detalhes do problema:", key=f"obs_{item}")
-                    respostas.append({"Equipamento": item, "H": h, "F": f, "E": e, "Detalhes": obs})
+                        detalhes_obs = st.text_area(f"Descreva o problema:", key=f"obs_{item}")
+                    
+                    respostas.append({"Equipamento": item, "H": h, "F": f, "E": e, "Detalhes": detalhes_obs})
 
             if st.button("🚀 FINALIZAR E SALVAR", type="primary"):
-                if not nome_inspetor: st.error("Preencha seu nome.")
+                if not nome_inspetor:
+                    st.error("Por favor, preencha o nome do inspetor.")
                 else:
-                    agora = obter_agora_br().strftime("%d/%m/%Y %H:%M")
-                    novas = []
-                    for r in respostas:
-                        falhas = [n for n, v in zip(["Higiene", "Funcionamento", "Estado"], [r["H"], r["F"], r["E"]]) if v == "NÃO"]
-                        novas.append({"Data/Hora": agora, "Funcionário": nome_inspetor, "Setor": setor_selecionado, "Equipamento": r["Equipamento"], "Status": "❌ FALHA" if falhas else "✅ OK", "Falhas": ", ".join(falhas) if falhas else "Nenhuma", "Descrição do Problema": r["Detalhes"]})
-                    conn.update(data=pd.concat([carregar_dados(), pd.DataFrame(novas)], ignore_index=True))
-                    st.session_state.sucesso = True
-                    st.rerun()
+                    with st.spinner("Salvando dados..."):
+                        agora = obter_agora_br().strftime("%d/%m/%Y %H:%M")
+                        novas_entradas = []
+                        for r in respostas:
+                            f_list = [n for n, v in zip(["Higiene", "Funcionamento", "Estado"], [r["H"], r["F"], r["E"]]) if v == "NÃO"]
+                            novas_entradas.append({
+                                "Data/Hora": agora, "Funcionário": nome_inspetor, "Setor": setor_selecionado,
+                                "Equipamento": r["Equipamento"], "Status": "❌ FALHA" if f_list else "✅ OK",
+                                "Falhas": ", ".join(f_list) if f_list else "Nenhuma", "Descrição do Problema": r["Detalhes"]
+                            })
+                        
+                        try:
+                            # Carrega dados brutos apenas para o append
+                            df_atual = conn.read(ttl=0)
+                            df_final = pd.concat([df_atual, pd.DataFrame(novas_entradas)], ignore_index=True)
+                            conn.update(data=df_final)
+                            st.session_state.sucesso = True
+                            st.rerun()
+                        except Exception as ex:
+                            if "200" in str(ex): st.session_state.sucesso = True; st.rerun()
+                            else: st.error(f"Erro ao salvar: {ex}")
 
-# --- ABA 2: HISTÓRICO E RELATÓRIOS ---
+# --- ABA 2: HISTÓRICO OTIMIZADO ---
 with tab2:
-    st.subheader("📜 Filtros e Histórico")
+    st.subheader("📜 Histórico de Registros")
     df_hist = carregar_dados()
+    
     if not df_hist.empty:
         with st.expander("🔍 Filtros de Busca", expanded=True):
             col_d1, col_d2 = st.columns(2)
-            d_ini = col_d1.date_input("Início", value=df_hist["Data/Hora"].min().date())
-            d_fim = col_d2.date_input("Fim", value=df_hist["Data/Hora"].max().date())
-            col_f1, col_f2 = st.columns(2)
-            f_set = col_f1.multiselect("Setores", options=setores_lista, default=setores_lista)
-            f_sta = col_f2.multiselect("Status", options=["✅ OK", "❌ FALHA"], default=["❌ FALHA"])
+            # Como separamos as colunas, usamos a Data/Hora original para o filtro de data
+            data_min = pd.to_datetime(df_hist["Data"], dayfirst=True).min().date()
+            data_max = pd.to_datetime(df_hist["Data"], dayfirst=True).max().date()
+            
+            d_ini = col_d1.date_input("Início", value=data_min)
+            d_fim = col_d2.date_input("Fim", value=data_max)
+            
+            f_set = st.multiselect("Setores", options=setores_lista, default=setores_lista)
+            f_sta = st.multiselect("Status", options=["✅ OK", "❌ FALHA"], default=["❌ FALHA"])
 
-        mask = (df_hist["Data/Hora"].dt.date >= d_ini) & (df_hist["Data/Hora"].dt.date <= d_fim) & (df_hist["Setor"].isin(f_set)) & (df_hist["Status"].isin(f_sta))
-        df_filtrado = df_hist[mask].sort_values("Data/Hora", ascending=False)
+        # Aplicação dos filtros
+        df_hist["dt_temp"] = pd.to_datetime(df_hist["Data"], dayfirst=True).dt.date
+        mask = (df_hist["dt_temp"] >= d_ini) & (df_hist["dt_temp"] <= d_fim) & \
+               (df_hist["Setor"].isin(f_set)) & (df_hist["Status"].isin(f_sta))
+        
+        df_filtrado = df_hist[mask].drop(columns=["dt_temp"]).sort_values(by=["Data", "Hora"], ascending=False)
+        
+        # Exibição da tabela limpa
         st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
 
-        # --- SEÇÃO DE RELATÓRIO COM O AVISO MANUTIDO ---
+        # --- SEÇÃO DE RELATÓRIO ---
         st.divider()
         st.subheader("📊 Enviar Relatório de Não Conformidades")
         st.info("💡 **Aviso:** O relatório enviado será baseado exclusivamente no conteúdo **filtrado** na tabela acima.")
@@ -140,12 +182,11 @@ with tab2:
             for _, row in df_filtrado.iterrows():
                 texto_rel += f"⚠️ *{row['Equipamento']}* ({row['Setor']})\nFalha: {row['Falhas']}\nObs: {row['Descrição do Problema']}\n---\n"
             
-            c_rel1, c_rel2, c_rel3 = st.columns(3)
-            # Botões
-            c_rel1.link_button("🟢 WhatsApp", f"https://wa.me/?text={urllib.parse.quote(texto_rel)}", use_container_width=True)
-            c_rel2.link_button("📧 E-mail", f"mailto:?subject=Relatorio de Nao Conformidades&body={urllib.parse.quote(texto_rel)}", use_container_width=True)
-            c_rel3.download_button("📥 PDF", gerar_pdf(df_filtrado), f"Relatorio_{obter_agora_br().strftime('%Y%m%d')}.pdf", "application/pdf", use_container_width=True)
+            col_rel1, col_rel2, col_rel3 = st.columns(3)
+            col_rel1.link_button("🟢 WhatsApp", f"https://wa.me/?text={urllib.parse.quote(texto_rel)}", use_container_width=True)
+            col_rel2.link_button("📧 E-mail", f"mailto:?subject=Relatorio&body={urllib.parse.quote(texto_rel)}", use_container_width=True)
+            col_rel3.download_button("📥 PDF", gerar_pdf(df_filtrado), f"Relatorio_{obter_agora_br().strftime('%Y%m%d')}.pdf", "application/pdf", use_container_width=True)
         else:
-            st.warning("Não há dados para gerar o relatório com os filtros atuais.")
+            st.warning("Não há falhas para exibir com os filtros atuais.")
     else:
         st.info("Nenhum registro encontrado.")
