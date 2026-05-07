@@ -62,7 +62,7 @@ def gerar_pdf(df_filtrado):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", "B", 16)
-    pdf.cell(190, 10, "Relatorio de Inspeção - Zelo Kitchen", ln=True, align="C")
+    pdf.cell(190, 10, "Relatório de Inspeção - Zelo Kitchen", ln=True, align="C")
     pdf.set_font("Arial", "", 10)
     pdf.cell(190, 10, f"Gerado em: {obter_agora_br().strftime('%d/%m/%Y %H:%M')}", ln=True, align="C")
     pdf.ln(10)
