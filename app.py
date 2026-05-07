@@ -7,24 +7,6 @@ import pytz
 # --- CONFIGURAÇÕES DA PÁGINA ---
 st.set_page_config(page_title="Zelo Kitchen - Inspeção", page_icon="🍳", layout="wide")
 
-# --- CSS AVANÇADO PARA FORÇAR QUEBRA DE LINHA ---
-st.markdown("""
-    <style>
-        /* Força a quebra de linha em células de tabelas e dataframes */
-        .stDataFrame div[data-testid="stTable"] td, 
-        .stDataFrame div[role="gridcell"] > div {
-            white-space: normal !important;
-            word-break: break-word !important;
-            line-height: 1.4 !important;
-        }
-        /* Ajuste para que a linha aumente de altura automaticamente */
-        [data-testid="stDataFrame"] [role="row"] {
-            height: auto !important;
-            min-height: 35px !important;
-        }
-    </style>
-""", unsafe_allow_html=True)
-
 fuso_br = pytz.timezone('America/Sao_Paulo')
 def obter_agora_br():
     return datetime.now(fuso_br)
@@ -38,6 +20,8 @@ except Exception as e:
 def carregar_dados():
     try:
         df = conn.read(ttl=0)
+        # Limpeza de colunas vazias que apareceram na sua imagem (None)
+        df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         if not df.empty and "Data/Hora" in df.columns:
             df["Data/Hora"] = pd.to_datetime(df["Data/Hora"], dayfirst=True)
         return df
@@ -87,9 +71,9 @@ with tab1:
 
             if st.button("🚀 FINALIZAR E SALVAR", type="primary", use_container_width=True):
                 if not nome_inspetor:
-                    st.error("Por favor, digite seu nome.")
+                    st.error("Por favor, preencha seu nome.")
                 else:
-                    with st.spinner("Salvando..."):
+                    with st.spinner("Gravando..."):
                         agora = obter_agora_br().strftime("%d/%m/%Y %H:%M")
                         novas_entradas = []
                         for r in respostas:
@@ -110,9 +94,7 @@ with tab1:
                             st.session_state.sucesso = True
                             st.rerun()
                         except Exception as e:
-                            if "200" in str(e): 
-                                st.session_state.sucesso = True
-                                st.rerun()
+                            if "200" in str(e): st.session_state.sucesso = True; st.rerun()
                             else: st.error(f"Erro: {e}")
 
 with tab2:
@@ -131,6 +113,7 @@ with tab2:
             filtro_setor = col_f1.multiselect("Setores", options=setores_lista, default=setores_lista)
             filtro_status = col_f2.multiselect("Status", options=["✅ OK", "❌ FALHA"], default=["❌ FALHA"])
 
+        # Aplicação dos filtros
         mask = (
             (df_hist["Data/Hora"].dt.date >= data_inicio) & 
             (df_hist["Data/Hora"].dt.date <= data_fim) &
@@ -139,24 +122,20 @@ with tab2:
         )
         
         df_filtrado = df_hist.loc[mask].sort_values(by="Data/Hora", ascending=False)
-        df_display = df_filtrado.copy()
+        
+        # Selecionamos apenas as colunas que importam para não poluir a tela
+        colunas_exibicao = ["Data/Hora", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema"]
+        df_display = df_filtrado[colunas_exibicao].copy()
         df_display["Data/Hora"] = df_display["Data/Hora"].dt.strftime("%d/%m/%Y %H:%M")
         
-        st.write(f"Exibindo **{len(df_display)}** registros:")
+        st.write(f"Exibindo **{len(df_display)}** registros encontrados:")
 
-        # --- NOVA FORMA DE EXIBIÇÃO COM QUEBRA DE LINHA GARANTIDA ---
-        st.dataframe(
-            df_display, 
-            use_container_width=True, 
-            hide_index=True,
-            column_config={
-                "Descrição do Problema": st.column_config.TextColumn(
-                    "Descrição do Problema",
-                    width="large", # Força a coluna a ser larga o suficiente
-                ),
-                "Status": st.column_config.TextColumn("Status", width="small"),
-                "Data/Hora": st.column_config.TextColumn("Data/Hora", width="medium"),
-            }
-        )
+        # --- A SOLUÇÃO DEFINITIVA ---
+        # Usamos st.table porque ele força a quebra de linha (text-wrap) automaticamente 
+        # e cresce a célula para baixo.
+        if not df_display.empty:
+            st.table(df_display)
+        else:
+            st.info("Nenhum item encontrado com os filtros aplicados.")
     else:
-        st.info("Nenhum registro encontrado na planilha.")
+        st.info("Nenhum registro encontrado.")
