@@ -20,6 +20,7 @@ except Exception as e:
 def carregar_dados():
     try:
         df = conn.read(ttl=0)
+        # Converter Data/Hora para formato datetime para que os filtros funcionem
         if not df.empty and "Data/Hora" in df.columns:
             df["Data/Hora"] = pd.to_datetime(df["Data/Hora"], dayfirst=True)
         return df
@@ -61,10 +62,10 @@ with tab1:
                     f = c2.radio(f"Funcionamento", ["OK", "NÃO"], key=f"f_{item}", horizontal=True)
                     e = c3.radio(f"Estado Geral", ["OK", "NÃO"], key=f"e_{item}", horizontal=True)
                     
-                    # Lógica da Caixa de Descrição: Se qualquer um for "NÃO"
+                    # CAIXA DE DESCRIÇÃO: Aparece se houver qualquer "NÃO"
                     obs = ""
                     if h == "NÃO" or f == "NÃO" or e == "NÃO":
-                        obs = st.text_input(f"Descreva o problema observado no(a) {item}:", key=f"obs_{item}")
+                        obs = st.text_input(f"Descreva o problema no(a) {item}:", key=f"obs_{item}")
                     
                     respostas.append({"Equipamento": item, "H": h, "F": f, "E": e, "Detalhes": obs})
 
@@ -72,7 +73,7 @@ with tab1:
                 if not nome_inspetor:
                     st.error("Por favor, digite seu nome.")
                 else:
-                    with st.spinner("Salvando..."):
+                    with st.spinner("Enviando dados..."):
                         agora = obter_agora_br().strftime("%d/%m/%Y %H:%M")
                         novas_entradas = []
                         for r in respostas:
@@ -84,7 +85,7 @@ with tab1:
                                 "Equipamento": r["Equipamento"],
                                 "Status": "❌ FALHA" if falhas else "✅ OK",
                                 "Falhas": ", ".join(falhas) if falhas else "Nenhuma",
-                                "Descrição do Problema": r["Detalhes"] # Nova coluna
+                                "Descrição do Problema": r["Detalhes"]
                             })
                         try:
                             df_atual = carregar_dados()
@@ -99,9 +100,38 @@ with tab1:
                             else: st.error(f"Erro: {e}")
 
 with tab2:
-    # O código do Histórico permanece o mesmo, apenas garantindo que a nova coluna apareça
     st.subheader("📜 Filtros do Histórico")
     df_hist = carregar_dados()
+    
     if not df_hist.empty:
-        # (Código de filtros omitido aqui por brevidade, mas deve ser mantido conforme a versão anterior)
-        st.dataframe(df_hist, use_container_width=True, hide_index=True)
+        with st.expander("🔍 Filtrar Resultados", expanded=True):
+            col_d1, col_d2 = st.columns(2)
+            data_min = df_hist["Data/Hora"].min().date()
+            data_max = df_hist["Data/Hora"].max().date()
+            
+            data_inicio = col_d1.date_input("Data Início", value=data_min)
+            data_fim = col_d2.date_input("Data Fim", value=data_max)
+            
+            col_f1, col_f2 = st.columns(2)
+            filtro_setor = col_f1.multiselect("Setores", options=setores_lista, default=setores_lista)
+            # PADRÃO: Começa mostrando apenas os pendentes (❌ FALHA)
+            filtro_status = col_f2.multiselect("Status", options=["✅ OK", "❌ FALHA"], default=["❌ FALHA"])
+
+        # Aplicação dos filtros
+        mask = (
+            (df_hist["Data/Hora"].dt.date >= data_inicio) & 
+            (df_hist["Data/Hora"].dt.date <= data_fim) &
+            (df_hist["Setor"].isin(filtro_setor)) &
+            (df_hist["Status"].isin(filtro_status))
+        )
+        
+        df_filtrado = df_hist.loc[mask].sort_values(by="Data/Hora", ascending=False)
+        
+        # Formatação para exibição amigável
+        df_display = df_filtrado.copy()
+        df_display["Data/Hora"] = df_display["Data/Hora"].dt.strftime("%d/%m/%Y %H:%M")
+        
+        st.write(f"Exibindo **{len(df_display)}** registros.")
+        st.dataframe(df_display, use_container_width=True, hide_index=True)
+    else:
+        st.info("Nenhum registro encontrado na planilha.")
