@@ -62,7 +62,7 @@ def gerar_pdf(df_filtrado):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", "B", 16)
-    pdf.cell(190, 10, "Relatorio de Nao Conformidades - Zelo Kitchen", ln=True, align="C")
+    pdf.cell(190, 10, "Relatorio de Inspeção - Zelo Kitchen", ln=True, align="C")
     pdf.set_font("Arial", "", 10)
     pdf.cell(190, 10, f"Gerado em: {obter_agora_br().strftime('%d/%m/%Y %H:%M')}", ln=True, align="C")
     pdf.ln(10)
@@ -174,7 +174,7 @@ with tab2:
 
         # --- SEÇÃO DE RELATÓRIO ---
         st.divider()
-        st.subheader("📊 Enviar Relatório de Não Conformidades")
+        st.subheader("📊 Enviar Relatório de Inspeção")
         st.info("💡 **Aviso:** O relatório enviado será baseado exclusivamente no conteúdo **filtrado** na tabela acima.")
         
         if not df_filtrado.empty:
