@@ -71,7 +71,7 @@ with tab1:
                 if not nome_inspetor:
                     st.error("Por favor, digite seu nome.")
                 else:
-                    with st.spinner("Salvando..."):
+                    with st.spinner("Enviando dados..."):
                         agora = obter_agora_br().strftime("%d/%m/%Y %H:%M")
                         novas_entradas = []
                         for r in respostas:
@@ -98,21 +98,22 @@ with tab1:
                             else: st.error(f"Erro: {e}")
 
 with tab2:
-    st.subheader("📜 Filtros do Histórico")
+    st.subheader("📜 Filtros e Histórico")
     df_hist = carregar_dados()
     
     if not df_hist.empty:
-        with st.expander("🔍 Filtrar Resultados", expanded=True):
+        with st.expander("🔍 Filtros de Busca", expanded=True):
             col_d1, col_d2 = st.columns(2)
             data_min = df_hist["Data/Hora"].min().date()
             data_max = df_hist["Data/Hora"].max().date()
-            data_inicio = col_d1.date_input("Data Início", value=data_min)
-            data_fim = col_d2.date_input("Data Fim", value=data_max)
+            data_inicio = col_d1.date_input("Início", value=data_min)
+            data_fim = col_d2.date_input("Fim", value=data_max)
             
             col_f1, col_f2 = st.columns(2)
             filtro_setor = col_f1.multiselect("Setores", options=setores_lista, default=setores_lista)
             filtro_status = col_f2.multiselect("Status", options=["✅ OK", "❌ FALHA"], default=["❌ FALHA"])
 
+        # Aplicação dos filtros
         mask = (
             (df_hist["Data/Hora"].dt.date >= data_inicio) & 
             (df_hist["Data/Hora"].dt.date <= data_fim) &
@@ -122,21 +123,17 @@ with tab2:
         
         df_filtrado = df_hist.loc[mask].sort_values(by="Data/Hora", ascending=False)
         df_display = df_filtrado.copy()
+        
+        # Formata a data para string apenas na hora de exibir
         df_display["Data/Hora"] = df_display["Data/Hora"].dt.strftime("%d/%m/%Y %H:%M")
         
-        # --- CONFIGURAÇÃO DE EXIBIÇÃO PARA PULAR LINHA NO TEXTO LONGO ---
-        st.dataframe(
-            df_display, 
-            use_container_width=True, 
-            hide_index=True,
-            column_config={
-                "Descrição do Problema": st.column_config.TextColumn(
-                    "Descrição do Problema",
-                    width="large",
-                    # O Streamlit permite wrap automático no componente dataframe atualizado
-                ),
-                "Falhas": st.column_config.TextColumn("Falhas", width="medium")
-            }
-        )
+        st.write(f"Exibindo **{len(df_display)}** itens encontrados:")
+
+        # --- A MUDANÇA ESTÁ AQUI ---
+        # Usamos st.table em vez de st.dataframe para que o texto longo pule linha automaticamente
+        if not df_display.empty:
+            st.table(df_display)
+        else:
+            st.warning("Nenhum item pendente com os filtros selecionados.")
     else:
         st.info("Nenhum registro encontrado na planilha.")
