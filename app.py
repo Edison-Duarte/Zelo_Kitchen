@@ -15,8 +15,6 @@ st.markdown("""
     <style>
         .main { background-color: #f9f9f9; }
         .stButton>button { border-radius: 5px; height: 3em; width: 100%; }
-        /* Remove paddings desnecessários para deixar o visual mais clean */
-        .block-container { padding-top: 2rem; padding-bottom: 2rem; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -36,31 +34,22 @@ def carregar_dados():
         # 1. Limpeza: Remove colunas "fantasmas" (Unnamed)
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         
-        # Cria a coluna de Resolução se ela não existir na planilha
-        if "Resolução" not in df.columns:
-            df["Resolução"] = ""
-            
-        # Guarda o índice original da planilha para garantir atualizações sem erros
-        df["original_index"] = df.index
-        
         if not df.empty and "Data/Hora" in df.columns:
-            # Garante que a data seja lida corretamente de forma flexível
-            df_dt = pd.to_datetime(df["Data/Hora"], dayfirst=True, errors='coerce')
+            # Garante que a data seja lida corretamente
+            df["Data/Hora"] = pd.to_datetime(df["Data/Hora"], dayfirst=True)
             
             # 2. Otimização: Cria colunas separadas no padrão Brasileiro
-            df["Data"] = df_dt.dt.strftime('%d/%m/%Y')
-            df["Hora"] = df_dt.dt.strftime('%H:%M')
-        else:
-            df["Data"] = ""
-            df["Hora"] = ""
+            df["Data"] = df["Data/Hora"].dt.strftime('%d/%m/%Y')
+            df["Hora"] = df["Data/Hora"].dt.strftime('%H:%M')
         
         # 3. Otimização: Seleciona apenas as colunas únicas e corretas
-        colunas_desejadas = ["Data", "Hora", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema", "Resolução", "original_index"]
+        colunas_desejadas = ["Data", "Hora", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema"]
         
+        # Filtra apenas o que realmente deve aparecer
         df_limpo = df[[c for c in colunas_desejadas if c in df.columns]]
         return df_limpo
     except Exception as e:
-        return pd.DataFrame(columns=["Data", "Hora", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema", "Resolução", "original_index"])
+        return pd.DataFrame(columns=["Data", "Hora", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema"])
 
 # --- FUNÇÃO PARA GERAR PDF ---
 def gerar_pdf(df_filtrado):
@@ -78,22 +67,24 @@ def gerar_pdf(df_filtrado):
         pdf.cell(190, 8, f"{row.get('Equipamento', 'N/A')} ({row.get('Setor', 'N/A')})", ln=True, fill=True)
         pdf.set_font("Arial", "", 10)
         desc = str(row.get('Descrição do Problema', '')).replace('\n', ' ') if row.get('Descrição do Problema') else "Nenhuma"
-        resolvido = f"\nSolucionado em: {row.get('Resolução')}" if pd.notna(row.get('Resolução')) and row.get('Resolução') != "" else "\nStatus: PENDENTE"
-        pdf.multi_cell(190, 7, f"Identificado em: {row.get('Data', '')} {row.get('Hora', '')}\nInspetor: {row.get('Funcionário', '')}\nFalha: {row.get('Falhas', '')}\nDescricao: {desc}{resolvido}")
+        pdf.multi_cell(190, 7, f"Data: {row.get('Data', '')} {row.get('Hora', '')}\nInspetor: {row.get('Funcionário', '')}\nFalha: {row.get('Falhas', '')}\nDescricao: {desc}")
         pdf.ln(5)
     return pdf.output(dest='S').encode('latin-1')
 
 # --- ESTRUTURA DO CHECKLIST ---
-setores_lista = ["Espaço Café", "Cozinha", "Mirante", "Refeitório"]
+setores_lista = ["Espaço Café", "Cozinha", "Mirante", "Refeitório", "Bar Varanda Alta", "Lanchonete", "Sushi"]
 itens_setores = {
-    "Espaço Café": ["Estufa quente", "Estufa fria", "Geladeiras balcão", "Frigobares", "Máquina de café expresso"],
-    "Cozinha": ["Geladeiras Bacio di Latte", "Geladeiras Resfriados", "Câmaras Frias", "Freezers Horizontais", "Fornos", "Fogões", "Fritadeiras", "Chapas", "Geladeiras Balcões", "Coifas", "Pista Fria"],
-    "Mirante": ["Freezer Sorvete Dona Mazza", "Adega Vinhos", "Geladeiras", "Geladeiras Balcões", "Lava Louças", "Coifas", "Pista Fria", "Elevador Monta Carga", "Freezer Horizontal", "Churrasqueira", "Forno a Lenha"],
-    "Refeitório": ["Lava Louças", "Geladeira Resfriados", "Rechaud"]
+    "Espaço Café": ["Máquina de Suco", "Estufa quente", "Estufa fria", "Geladeiras balcão", "Frigobares", "Máquina de café expresso"],
+    "Cozinha": ["Geladeiras Bacio di Latte", "Geladeiras Resfriados", "Câmaras Frias", "Freezers Horizontais", "Fornos", "Fogões", "Fritadeiras", "Chapas", "Geladeiras Balcões", "Coifas", "Pista Fria", "Banho Maria", "Máquina de Suco"],
+    "Mirante": ["Máquina de Suco", "Freezer Sorvete Dona Mazza", "Adega Vinhos", "Geladeiras", "Geladeiras Balcões", "Lava Louças", "Coifas", "Pista Fria", "Elevador Monta Carga", "Freezer Horizontal", "Churrasqueira", "Forno a Lenha"],
+    "Refeitório": ["Lava Louças", "Geladeira Resfriados", "Rechaud"],
+    "Bar Varanda Alta": ["Geladeira Bancada", "Freezer Bancada", "Máquina de Gelo"],
+    "Lanchonete": ["Geladeira Bacio de Latte", "Geladeiras Cervejas", "Máquina de Café", "Choppeira", "Estufa Salgados"],
+    "Sushi": ["Fogão", "Freezer Horizontal", "Geladeira Bancada", "Estufa Fria"]
 }
 
 st.title("🍳 Sistema de Inspeção Zelo Kitchen")
-tab1, tab2 = st.tabs(["📝 Nova Inspeção", "📜 Painel de Pendências & Histórico"])
+tab1, tab2 = st.tabs(["📝 Nova Inspeção", "📜 Histórico"])
 
 # --- ABA 1: NOVA INSPEÇÃO ---
 with tab1:
@@ -136,8 +127,7 @@ with tab1:
                             novas_entradas.append({
                                 "Data/Hora": agora, "Funcionário": nome_inspetor, "Setor": setor_selecionado,
                                 "Equipamento": r["Equipamento"], "Status": "❌ FALHA" if f_list else "✅ OK",
-                                "Falhas": ", ".join(f_list) if f_list else "Nenhuma", "Descrição do Problema": r["Detalhes"],
-                                "Resolução": ""
+                                "Falhas": ", ".join(f_list) if f_list else "Nenhuma", "Descrição do Problema": r["Detalhes"]
                             })
                         
                         try:
@@ -150,128 +140,87 @@ with tab1:
                             if "200" in str(ex): st.session_state.sucesso = True; st.rerun()
                             else: st.error(f"Erro ao salvar: {ex}")
 
-# --- ABA 2: HISTÓRICO 100% SEGURO (NATIVO E CLEAN) ---
+# --- ABA 2: HISTÓRICO CORRIGIDO COM QUEBRA DE LINHA INFALÍVEL ---
 with tab2:
+    st.subheader("📜 Histórico de Registros")
     df_hist = carregar_dados()
     
     if not df_hist.empty:
-        df_hist["Resolução"] = df_hist["Resolução"].fillna("").astype(str).str.strip()
-        
-        st.subheader("🔍 Filtros de Busca")
-        col_v1, col_v2, col_v3 = st.columns(3)
-        
-        tipo_visao = col_v1.radio("Visualização:", ["🔴 Apenas Pendentes", "🟢 Apenas Solucionados", "📋 Todos os Registros"], horizontal=True)
-        f_set = col_v2.multiselect("Setores", options=setores_lista, default=setores_lista)
-        f_sta = col_v3.multiselect("Status", options=["✅ OK", "❌ FALHA"], default=["❌ FALHA"])
+        with st.expander("🔍 Filtros de Busca", expanded=True):
+            col_d1, col_d2 = st.columns(2)
+            data_min = pd.to_datetime(df_hist["Data"], dayfirst=True).min().date()
+            data_max = pd.to_datetime(df_hist["Data"], dayfirst=True).max().date()
+            
+            d_ini = col_d1.date_input("Início", value=data_min)
+            d_fim = col_d2.date_input("Fim", value=data_max)
+            
+            f_set = st.multiselect("Setores", options=setores_lista, default=setores_lista)
+            f_sta = st.multiselect("Status", options=["✅ OK", "❌ FALHA"], default=["❌ FALHA"])
 
-        col_d1, col_d2 = st.columns(2)
-        df_hist["dt_temp"] = pd.to_datetime(df_hist["Data"], dayfirst=True, errors='coerce').dt.date
-        data_min = df_hist["dt_temp"].dropna().min() if not df_hist["dt_temp"].dropna().empty else obter_agora_br().date()
-        data_max = df_hist["dt_temp"].dropna().max() if not df_hist["dt_temp"].dropna().empty else obter_agora_br().date()
-        
-        d_ini = col_d1.date_input("Início", value=data_min)
-        d_fim = col_d2.date_input("Fim", value=data_max)
-
-        # Filtros aplicados
+        # Aplicação dos filtros
+        df_hist["dt_temp"] = pd.to_datetime(df_hist["Data"], dayfirst=True).dt.date
         mask = (df_hist["dt_temp"] >= d_ini) & (df_hist["dt_temp"] <= d_fim) & \
                (df_hist["Setor"].isin(f_set)) & (df_hist["Status"].isin(f_sta))
         
-        if tipo_visao == "🔴 Apenas Pendentes":
-            mask = mask & (df_hist["Resolução"] == "")
-        elif tipo_visao == "🟢 Apenas Solucionados":
-            mask = mask & (df_hist["Resolução"] != "")
-        
         df_filtrado = df_hist[mask].drop(columns=["dt_temp"]).sort_values(by=["Data", "Hora"], ascending=False)
-
-        st.markdown("---")
         
-        if tipo_visao == "🔴 Apenas Pendentes" and not df_filtrado.empty:
-            st.subheader("🚨 Lista de Pendências em Aberto")
-            st.caption("Marque o quadradinho na coluna **'Solucionar'** e clique no botão vermelho abaixo para salvar.")
-            
-            # Insere a coluna booleana para seleção nativa segura do Streamlit
-            df_filtrado.insert(0, "Solucionar", False)
-            
-            # Renderização nativa robusta com controle de text-wrap e larguras fixas
-            df_editado = st.data_editor(
-                df_filtrado,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Solucionar": st.column_config.CheckboxColumn("Solucionar", default=False),
-                    "Data": st.column_config.TextColumn("Data", width="small", required=True),
-                    "Hora": st.column_config.TextColumn("Hora", width="small"),
-                    "Descrição do Problema": st.column_config.TextColumn("Descrição do Problema", width="large"),
-                    "Resolução": None, # Oculta pois está pendente
-                    "original_index": None # Oculta o ID técnico do usuário
-                },
-                disabled=["Data", "Hora", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema"]
-            )
-            
-            # Botão de confirmação unificado (Estilo padrão estável do Streamlit)
-            if st.button("💾 CONFIRMAR SOLUÇÃO DOS ITENS MARCADOS", type="primary"):
-                itens_marcados = df_editado[df_editado["Solucionar"] == True]
+        # TABELA HTML EM INLINE COM QUEBRA DE LINHA FORÇADA (EFEITO TEXT-WRAP COMPLETO)
+        if not df_filtrado.empty:
+            html_tabela = """
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
+            <style>
+                body { background-color: transparent !important; font-family: sans-serif; }
+                th { background-color: #2c3e50 !important; color: white !important; font-size: 14px; position: sticky; top: 0; }
+                td { font-size: 13px; vertical-align: middle; word-break: break-word !important; white-space: normal !important; }
+                .table-container { max-height: 450px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; }
+            </style>
+            <div class="table-container">
+                <table class="table table-striped table-hover m-0">
+                    <thead>
+                        <tr>
+                            <th>Data</th><th>Hora</th><th>Funcionário</th><th>Setor</th><th>Equipamento</th><th>Status</th><th>Falhas</th><th>Descrição do Problema</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            """
+            for _, row in df_filtrado.iterrows():
+                desc_p = row.get('Descrição do Problema', '')
+                desc_p = str(desc_p) if pd.notna(desc_p) else ""
                 
-                if not itens_marcados.empty:
-                    with st.spinner("Atualizando banco de dados no Google Sheets..."):
-                        data_solucao = obter_agora_br().strftime("%d/%m/%Y %H:%M")
-                        
-                        # Recarrega a planilha direto da nuvem de forma limpa
-                        df_original_sheets = conn.read(ttl=0)
-                        df_original_sheets = df_original_sheets.loc[:, ~df_original_sheets.columns.str.contains('^Unnamed')]
-                        
-                        if "Resolução" not in df_original_sheets.columns:
-                            df_original_sheets["Resolução"] = ""
-                        
-                        # Atualiza os índices numéricos reais mapeados de forma infalível
-                        for _, row in itens_marcados.iterrows():
-                            idx_planilha = int(row["original_index"])
-                            df_original_sheets.loc[idx_planilha, "Resolução"] = f"Solucionado em {data_solucao}"
-                        
-                        conn.update(data=df_original_sheets)
-                        st.success("🎉 Itens atualizados com sucesso!")
-                        st.rerun()
-                else:
-                    st.warning("Nenhum item foi selecionado. Marque a caixinha primeiro.")
-                    
+                html_tabela += f"""
+                        <tr>
+                            <td>{row.get('Data','')}</td>
+                            <td>{row.get('Hora','')}</td>
+                            <td>{row.get('Funcionário','')}</td>
+                            <td>{row.get('Setor','')}</td>
+                            <td>{row.get('Equipamento','')}</td>
+                            <td>{row.get('Status','')}</td>
+                            <td>{row.get('Falhas','')}</td>
+                            <td style="min-width: 250px; max-width: 400px;">{desc_p}</td>
+                        </tr>
+                """
+            html_tabela += "</tbody></table></div>"
+            
+            # Injeta o HTML nativo que força o navegador a saltar linhas
+            st.components.v1.html(html_tabela, height=460, scrolling=False)
         else:
-            # Visão de Histórico Geral ou Solucionados (Somente Leitura Dinâmica)
-            st.subheader("📋 Registros Filtrados")
-            st.dataframe(
-                df_filtrado,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Data": st.column_config.TextColumn("Data", width="small"),
-                    "Hora": st.column_config.TextColumn("Hora", width="small"),
-                    "Descrição do Problema": st.column_config.TextColumn("Descrição do Problema", width="large"),
-                    "Resolução": st.column_config.TextColumn("Histórico de Resolução", width="medium"),
-                    "original_index": None
-                }
-            )
+            st.write("Nenhum dado corresponde aos filtros selecionados.")
 
-        # --- SEÇÃO DE RELATÓRIO DINÂMICO ---
+        # --- SEÇÃO DE RELATÓRIO ---
         st.divider()
         st.subheader("📊 Enviar Relatório de Não Conformidades")
         st.info("💡 **Aviso:** O relatório enviado será baseado exclusivamente no conteúdo **filtrado** na tabela acima.")
         
         if not df_filtrado.empty:
-            df_enviar = df_filtrado.drop(columns=["Solucionar"]) if "Solucionar" in df_filtrado.columns else df_filtrado
-            if "original_index" in df_enviar.columns:
-                df_enviar = df_enviar.drop(columns=["original_index"])
-            
-            texto_rel = f"*RELATÓRIO ZELO KITCHEN - {obter_agora_br().strftime('%d/%m/%Y')}*\n"
-            texto_rel += f"Filtro aplicado: {tipo_visao}\n\n"
-            
-            for _, row in df_enviar.iterrows():
-                status_res = f"\n✅ {row['Resolução']}" if row['Resolução'] != "" else "\n🔴 Status: Pendente de manutenção"
-                texto_rel += f"⚠️ *{row['Equipamento']}* ({row['Setor']})\nFalha: {row['Falhas']}\nObs: {row['Descrição do Problema']}{status_res}\n---\n"
+            texto_rel = f"*RELATÓRIO ZELO KITCHEN - {obter_agora_br().strftime('%d/%m/%Y')}*\n\n"
+            for _, row in df_filtrado.iterrows():
+                texto_rel += f"⚠️ *{row['Equipamento']}* ({row['Setor']})\nFalha: {row['Falhas']}\nObs: {row['Descrição do Problema']}\n---\n"
             
             col_rel1, col_rel2, col_rel3 = st.columns(3)
             col_rel1.link_button("🟢 WhatsApp", f"https://wa.me/?text={urllib.parse.quote(texto_rel)}", use_container_width=True)
-            col_rel2.link_button("📧 E-mail", f"mailto:?subject=Relatorio_Zelo_Kitchen&body={urllib.parse.quote(texto_rel)}", use_container_width=True)
-            col_rel3.download_button("📥 PDF", gerar_pdf(df_enviar), f"Relatorio_{obter_agora_br().strftime('%Y%m%d')}.pdf", "application/pdf", use_container_width=True)
+            col_rel2.link_button("📧 E-mail", f"mailto:?subject=Relatorio&body={urllib.parse.quote(texto_rel)}", use_container_width=True)
+            col_rel3.download_button("📥 PDF", gerar_pdf(df_filtrado), f"Relatorio_{obter_agora_br().strftime('%Y%m%d')}.pdf", "application/pdf", use_container_width=True)
         else:
-            st.warning("Não há falhas na lista atual para gerar relatórios.")
+            st.warning("Não há falhas para exibir com os filtros atuais.")
     else:
         st.info("Nenhum registro encontrado.")
