@@ -137,7 +137,7 @@ with tab1:
                             if "200" in str(ex): st.session_state.sucesso = True; st.rerun()
                             else: st.error(f"Erro ao salvar: {ex}")
 
-# --- ABA 2: HISTÓRICO OTIMIZADO COM QUEBRA DE LINHA ---
+# --- ABA 2: HISTÓRICO CORRIGIDO COM QUEBRA DE LINHA INFALÍVEL ---
 with tab2:
     st.subheader("📜 Histórico de Registros")
     df_hist = carregar_dados()
@@ -161,18 +161,47 @@ with tab2:
         
         df_filtrado = df_hist[mask].drop(columns=["dt_temp"]).sort_values(by=["Data", "Hora"], ascending=False)
         
-        # EXIBIÇÃO DA TABELA CONFIGURADA PARA QUEBRAR LINHA AUTOMATICAMENTE
-        st.dataframe(
-            df_filtrado, 
-            use_container_width=True, 
-            hide_index=True,
-            column_config={
-                "Descrição do Problema": st.column_config.TextColumn(
-                    "Descrição do Problema",
-                    disabled=True
-                )
-            }
-        )
+        # TABELA HTML EM INLINE COM QUEBRA DE LINHA FORÇADA (EFEITO TEXT-WRAP COMPLETO)
+        if not df_filtrado.empty:
+            html_tabela = """
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
+            <style>
+                body { background-color: transparent !important; font-family: sans-serif; }
+                th { background-color: #2c3e50 !important; color: white !important; font-size: 14px; position: sticky; top: 0; }
+                td { font-size: 13px; vertical-align: middle; word-break: break-word !important; white-space: normal !important; }
+                .table-container { max-height: 450px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; }
+            </style>
+            <div class="table-container">
+                <table class="table table-striped table-hover m-0">
+                    <thead>
+                        <tr>
+                            <th>Data</th><th>Hora</th><th>Funcionário</th><th>Setor</th><th>Equipamento</th><th>Status</th><th>Falhas</th><th>Descrição do Problema</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            """
+            for _, row in df_filtrado.iterrows():
+                desc_p = row.get('Descrição do Problema', '')
+                desc_p = str(desc_p) if pd.notna(desc_p) else ""
+                
+                html_tabela += f"""
+                        <tr>
+                            <td>{row.get('Data','')}</td>
+                            <td>{row.get('Hora','')}</td>
+                            <td>{row.get('Funcionário','')}</td>
+                            <td>{row.get('Setor','')}</td>
+                            <td>{row.get('Equipamento','')}</td>
+                            <td>{row.get('Status','')}</td>
+                            <td>{row.get('Falhas','')}</td>
+                            <td style="min-width: 250px; max-width: 400px;">{desc_p}</td>
+                        </tr>
+                """
+            html_tabela += "</tbody></table></div>"
+            
+            # Injeta o HTML nativo que força o navegador a saltar linhas
+            st.components.v1.html(html_tabela, height=460, scrolling=False)
+        else:
+            st.write("Nenhum dado corresponde aos filtros selecionados.")
 
         # --- SEÇÃO DE RELATÓRIO ---
         st.divider()
