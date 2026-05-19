@@ -83,7 +83,7 @@ itens_setores = {
     "Sushi": ["Fogão", "Freezer Horizontal", "Geladeira Bancada", "Estufa Fria"]
 }
 
-st.title("🍳 Sistema de Inspeção Zelo Kitchen")
+st.title("🍳 Zelo Kitchen | Sistema de Inspeção")
 tab1, tab2 = st.tabs(["📝 Nova Inspeção", "📜 Histórico"])
 
 # --- ABA 1: NOVA INSPEÇÃO ---
