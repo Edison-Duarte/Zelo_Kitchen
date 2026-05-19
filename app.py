@@ -10,14 +10,9 @@ import io
 # --- CONFIGURAÇÕES DA PÁGINA ---
 st.set_page_config(page_title="Zelo Kitchen - Inspeção", page_icon="🍳", layout="wide")
 
-# CSS para garantir quebras de linha e visual limpo
+# CSS para interface geral e botões
 st.markdown("""
     <style>
-        /* Força o texto a pular linha na tabela de histórico */
-        [data-testid="stDataFrame"] td {
-            white-space: normal !important;
-            word-wrap: break-word !important;
-        }
         .main { background-color: #f9f9f9; }
         .stButton>button { border-radius: 5px; height: 3em; width: 100%; }
     </style>
@@ -48,7 +43,6 @@ def carregar_dados():
             df["Hora"] = df["Data/Hora"].dt.strftime('%H:%M')
         
         # 3. Otimização: Seleciona apenas as colunas únicas e corretas
-        # Isso elimina os duplicados como "Equipamento" vs "Equipamentos"
         colunas_desejadas = ["Data", "Hora", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema"]
         
         # Filtra apenas o que realmente deve aparecer
@@ -62,7 +56,7 @@ def gerar_pdf(df_filtrado):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", "B", 16)
-    pdf.cell(190, 10, "Relatório de Inspeção - Zelo Kitchen", ln=True, align="C")
+    pdf.cell(190, 10, "Relatorio de Nao Conformidades - Zelo Kitchen", ln=True, align="C")
     pdf.set_font("Arial", "", 10)
     pdf.cell(190, 10, f"Gerado em: {obter_agora_br().strftime('%d/%m/%Y %H:%M')}", ln=True, align="C")
     pdf.ln(10)
@@ -134,7 +128,6 @@ with tab1:
                             })
                         
                         try:
-                            # Carrega dados brutos apenas para o append
                             df_atual = conn.read(ttl=0)
                             df_final = pd.concat([df_atual, pd.DataFrame(novas_entradas)], ignore_index=True)
                             conn.update(data=df_final)
@@ -144,7 +137,7 @@ with tab1:
                             if "200" in str(ex): st.session_state.sucesso = True; st.rerun()
                             else: st.error(f"Erro ao salvar: {ex}")
 
-# --- ABA 2: HISTÓRICO OTIMIZADO ---
+# --- ABA 2: HISTÓRICO OTIMIZADO COM QUEBRA DE LINHA ---
 with tab2:
     st.subheader("📜 Histórico de Registros")
     df_hist = carregar_dados()
@@ -152,7 +145,6 @@ with tab2:
     if not df_hist.empty:
         with st.expander("🔍 Filtros de Busca", expanded=True):
             col_d1, col_d2 = st.columns(2)
-            # Como separamos as colunas, usamos a Data/Hora original para o filtro de data
             data_min = pd.to_datetime(df_hist["Data"], dayfirst=True).min().date()
             data_max = pd.to_datetime(df_hist["Data"], dayfirst=True).max().date()
             
@@ -169,12 +161,22 @@ with tab2:
         
         df_filtrado = df_hist[mask].drop(columns=["dt_temp"]).sort_values(by=["Data", "Hora"], ascending=False)
         
-        # Exibição da tabela limpa
-        st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+        # EXIBIÇÃO DA TABELA CONFIGURADA PARA QUEBRAR LINHA AUTOMATICAMENTE
+        st.dataframe(
+            df_filtrado, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "Descrição do Problema": st.column_config.TextColumn(
+                    "Descrição do Problema",
+                    disabled=True
+                )
+            }
+        )
 
         # --- SEÇÃO DE RELATÓRIO ---
         st.divider()
-        st.subheader("📊 Enviar Relatório de Inspeção")
+        st.subheader("📊 Enviar Relatório de Não Conformidades")
         st.info("💡 **Aviso:** O relatório enviado será baseado exclusivamente no conteúdo **filtrado** na tabela acima.")
         
         if not df_filtrado.empty:
@@ -190,20 +192,3 @@ with tab2:
             st.warning("Não há falhas para exibir com os filtros atuais.")
     else:
         st.info("Nenhum registro encontrado.")
-
-# --- ASSINATURA FINALIZADA COM FONTE GABRIOLA ---
-st.markdown("---")
-
-st.markdown(
-    """
-    <div style='text-align: center; margin-top: 100px;'>
-        <p style='margin-bottom: -8px; font-family: "Gabriola", serif; font-style: italic; font-size: 18px; color: #0056b3;'>
-            Developed by:
-        </p>
-        <p style='font-family: "Gabriola", serif; font-size: 20px; font-weight: 100; color: #1e7044;'>
-            Edison Duarte Filho®
-        </p>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
