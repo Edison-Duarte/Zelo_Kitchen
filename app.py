@@ -15,6 +15,8 @@ st.markdown("""
     <style>
         .main { background-color: #f9f9f9; }
         .stButton>button { border-radius: 5px; height: 3em; width: 100%; }
+        /* Remove paddings desnecessários para deixar o visual mais clean */
+        .block-container { padding-top: 2rem; padding-bottom: 2rem; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -42,7 +44,7 @@ def carregar_dados():
         df["original_index"] = df.index
         
         if not df.empty and "Data/Hora" in df.columns:
-            # Garante que a data seja lida corretamente
+            # Garante que a data seja lida corretamente de forma flexível
             df_dt = pd.to_datetime(df["Data/Hora"], dayfirst=True, errors='coerce')
             
             # 2. Otimização: Cria colunas separadas no padrão Brasileiro
@@ -148,30 +150,29 @@ with tab1:
                             if "200" in str(ex): st.session_state.sucesso = True; st.rerun()
                             else: st.error(f"Erro ao salvar: {ex}")
 
-# --- ABA 2: HISTÓRICO CORRIGIDO (DATA EM LINHA ÚNICA E BOTÃO OBJETIVO) ---
+# --- ABA 2: HISTÓRICO 100% SEGURO (NATIVO E CLEAN) ---
 with tab2:
-    st.subheader("📜 Histórico de Registros")
     df_hist = carregar_dados()
     
     if not df_hist.empty:
         df_hist["Resolução"] = df_hist["Resolução"].fillna("").astype(str).str.strip()
         
-        with st.expander("🔍 Filtros de Busca", expanded=True):
-            col_v1, col_v2, col_v3 = st.columns(3)
-            
-            tipo_visao = col_v1.radio("Visualização:", ["🔴 Apenas Pendentes", "🟢 Apenas Solucionados", "📋 Todos os Registros"], horizontal=True)
-            f_set = col_v2.multiselect("Setores", options=setores_lista, default=setores_lista)
-            f_sta = col_v3.multiselect("Status", options=["✅ OK", "❌ FALHA"], default=["❌ FALHA"])
+        st.subheader("🔍 Filtros de Busca")
+        col_v1, col_v2, col_v3 = st.columns(3)
+        
+        tipo_visao = col_v1.radio("Visualização:", ["🔴 Apenas Pendentes", "🟢 Apenas Solucionados", "📋 Todos os Registros"], horizontal=True)
+        f_set = col_v2.multiselect("Setores", options=setores_lista, default=setores_lista)
+        f_sta = col_v3.multiselect("Status", options=["✅ OK", "❌ FALHA"], default=["❌ FALHA"])
 
-            col_d1, col_d2 = st.columns(2)
-            df_hist["dt_temp"] = pd.to_datetime(df_hist["Data"], dayfirst=True, errors='coerce').dt.date
-            data_min = df_hist["dt_temp"].dropna().min() if not df_hist["dt_temp"].dropna().empty else obter_agora_br().date()
-            data_max = df_hist["dt_temp"].dropna().max() if not df_hist["dt_temp"].dropna().empty else obter_agora_br().date()
-            
-            d_ini = col_d1.date_input("Início", value=data_min)
-            d_fim = col_d2.date_input("Fim", value=data_max)
+        col_d1, col_d2 = st.columns(2)
+        df_hist["dt_temp"] = pd.to_datetime(df_hist["Data"], dayfirst=True, errors='coerce').dt.date
+        data_min = df_hist["dt_temp"].dropna().min() if not df_hist["dt_temp"].dropna().empty else obter_agora_br().date()
+        data_max = df_hist["dt_temp"].dropna().max() if not df_hist["dt_temp"].dropna().empty else obter_agora_br().date()
+        
+        d_ini = col_d1.date_input("Início", value=data_min)
+        d_fim = col_d2.date_input("Fim", value=data_max)
 
-        # Filtros
+        # Filtros aplicados
         mask = (df_hist["dt_temp"] >= d_ini) & (df_hist["dt_temp"] <= d_fim) & \
                (df_hist["Setor"].isin(f_set)) & (df_hist["Status"].isin(f_sta))
         
@@ -181,110 +182,96 @@ with tab2:
             mask = mask & (df_hist["Resolução"] != "")
         
         df_filtrado = df_hist[mask].drop(columns=["dt_temp"]).sort_values(by=["Data", "Hora"], ascending=False)
+
+        st.markdown("---")
         
-        # URL Callback para capturar clique de resolução
-        query_params = st.query_params
-        if "resolver_id" in query_params:
-            id_para_resolver = int(query_params["resolver_id"])
-            with st.spinner("Registrando solução..."):
-                data_solucao = obter_agora_br().strftime("%d/%m/%Y %H:%M")
-                
-                df_original_sheets = conn.read(ttl=0)
-                df_original_sheets = df_original_sheets.loc[:, ~df_original_sheets.columns.str.contains('^Unnamed')]
-                
-                if "Resolução" not in df_original_sheets.columns:
-                    df_original_sheets["Resolução"] = ""
-                
-                df_original_sheets.loc[id_para_resolver, "Resolução"] = f"Solucionado em {data_solucao}"
-                
-                conn.update(data=df_original_sheets)
-                st.query_params.clear()
-                st.success("🎉 Problema solucionado!")
-                st.rerun()
-
-        # TABELA HTML CUSTOMIZADA (VISUAL CLEAN & SEM QUEBRA DE DATAS)
-        if not df_filtrado.empty:
-            coluna_acao_header = '<th style="width: 120px; text-align: center;">Ação</th>' if tipo_visao == "🔴 Apenas Pendentes" else "<th>Histórico de Resolução</th>"
+        if tipo_visao == "🔴 Apenas Pendentes" and not df_filtrado.empty:
+            st.subheader("🚨 Lista de Pendências em Aberto")
+            st.caption("Marque o quadradinho na coluna **'Solucionar'** e clique no botão vermelho abaixo para salvar.")
             
-            html_tabela = f"""
-            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
-            <style>
-                body {{ background-color: transparent !important; font-family: sans-serif; }}
-                th {{ background-color: #2c3e50 !important; color: white !important; font-size: 14px; position: sticky; top: 0; white-space: nowrap; }}
-                td {{ font-size: 13px; vertical-align: middle; word-break: break-word !important; white-space: normal !important; }}
+            # Insere a coluna booleana para seleção nativa segura do Streamlit
+            df_filtrado.insert(0, "Solucionar", False)
+            
+            # Renderização nativa robusta com controle de text-wrap e larguras fixas
+            df_editado = st.data_editor(
+                df_filtrado,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Solucionar": st.column_config.CheckboxColumn("Solucionar", default=False),
+                    "Data": st.column_config.TextColumn("Data", width="small", required=True),
+                    "Hora": st.column_config.TextColumn("Hora", width="small"),
+                    "Descrição do Problema": st.column_config.TextColumn("Descrição do Problema", width="large"),
+                    "Resolução": None, # Oculta pois está pendente
+                    "original_index": None # Oculta o ID técnico do usuário
+                },
+                disabled=["Data", "Hora", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema"]
+            )
+            
+            # Botão de confirmação unificado (Estilo padrão estável do Streamlit)
+            if st.button("💾 CONFIRMAR SOLUÇÃO DOS ITENS MARCADOS", type="primary"):
+                itens_marcados = df_editado[df_editado["Solucionar"] == True]
                 
-                /* Força largura para impedir a quebra de linha em Data e Hora */
-                .col-data {{ min-width: 105px !important; white-space: nowrap !important; }}
-                .col-hora {{ min-width: 65px !important; white-space: nowrap !important; }}
-                
-                .table-container {{ max-height: 450px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; }}
-                
-                /* Botão Objetivo Clean */
-                .btn-solucionar {{ background-color: #2ece71; color: white; border: none; padding: 5px 12px; font-size: 12px; border-radius: 4px; cursor: pointer; text-decoration: none; font-weight: 500; display: inline-block; }}
-                .btn-solucionar:hover {{ background-color: #27ae60; color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-            </style>
-            <div class="table-container">
-                <table class="table table-striped table-hover m-0">
-                    <thead>
-                        <tr>
-                            <th class="col-data">Data</th><th class="col-hora">Hora</th><th>Funcionário</th><th>Setor</th><th>Equipamento</th><th>Status</th><th>Falhas</th><th>Descrição do Problema</th>{coluna_acao_header}
-                        </tr>
-                    </thead>
-                    <tbody>
-            """
-            for _, row in df_filtrado.iterrows():
-                desc_p = row.get('Descrição do Problema', '')
-                desc_p = str(desc_p) if pd.notna(desc_p) else ""
-                idx_real = row.get('original_index')
-                resolucao_texto = row.get('Resolução', '')
-                
-                if tipo_visao == "🔴 Apenas Pendentes":
-                    coluna_acao_td = f'<td style="text-align: center;"><a href="?resolver_id={idx_real}" target="_self" class="btn-solucionar">✓ Resolver</a></td>'
-                elif tipo_visao == "🟢 Apenas Solucionados":
-                    coluna_acao_td = f'<td class="text-success fw-bold">✓ {resolucao_texto}</td>'
+                if not itens_marcados.empty:
+                    with st.spinner("Atualizando banco de dados no Google Sheets..."):
+                        data_solucao = obter_agora_br().strftime("%d/%m/%Y %H:%M")
+                        
+                        # Recarrega a planilha direto da nuvem de forma limpa
+                        df_original_sheets = conn.read(ttl=0)
+                        df_original_sheets = df_original_sheets.loc[:, ~df_original_sheets.columns.str.contains('^Unnamed')]
+                        
+                        if "Resolução" not in df_original_sheets.columns:
+                            df_original_sheets["Resolução"] = ""
+                        
+                        # Atualiza os índices numéricos reais mapeados de forma infalível
+                        for _, row in itens_marcados.iterrows():
+                            idx_planilha = int(row["original_index"])
+                            df_original_sheets.loc[idx_planilha, "Resolução"] = f"Solucionado em {data_solucao}"
+                        
+                        conn.update(data=df_original_sheets)
+                        st.success("🎉 Itens atualizados com sucesso!")
+                        st.rerun()
                 else:
-                    if resolucao_texto != "":
-                        coluna_acao_td = f'<td class="text-success fw-bold">✓ {resolucao_texto}</td>'
-                    else:
-                        coluna_acao_td = f'<td class="text-danger fw-bold">🔴 Pendente</td>'
-                
-                html_tabela += f"""
-                        <tr>
-                            <td class="col-data">{row.get('Data','')}</td>
-                            <td class="col-hora">{row.get('Hora','')}</td>
-                            <td>{row.get('Funcionário','')}</td>
-                            <td>{row.get('Setor','')}</td>
-                            <td>{row.get('Equipamento','')}</td>
-                            <td>{row.get('Status','')}</td>
-                            <td>{row.get('Falhas','')}</td>
-                            <td style="min-width: 250px; max-width: 450px;">{desc_p}</td>
-                            {coluna_acao_td}
-                        </tr>
-                """
-            html_tabela += "</tbody></table></div>"
-            
-            st.components.v1.html(html_tabela, height=460, scrolling=False)
+                    st.warning("Nenhum item foi selecionado. Marque a caixinha primeiro.")
+                    
         else:
-            st.write("Nenhum dado corresponde aos filtros selecionados.")
+            # Visão de Histórico Geral ou Solucionados (Somente Leitura Dinâmica)
+            st.subheader("📋 Registros Filtrados")
+            st.dataframe(
+                df_filtrado,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Data": st.column_config.TextColumn("Data", width="small"),
+                    "Hora": st.column_config.TextColumn("Hora", width="small"),
+                    "Descrição do Problema": st.column_config.TextColumn("Descrição do Problema", width="large"),
+                    "Resolução": st.column_config.TextColumn("Histórico de Resolução", width="medium"),
+                    "original_index": None
+                }
+            )
 
-        # --- SEÇÃO DE RELATÓRIO ---
+        # --- SEÇÃO DE RELATÓRIO DINÂMICO ---
         st.divider()
         st.subheader("📊 Enviar Relatório de Não Conformidades")
         st.info("💡 **Aviso:** O relatório enviado será baseado exclusivamente no conteúdo **filtrado** na tabela acima.")
         
         if not df_filtrado.empty:
+            df_enviar = df_filtrado.drop(columns=["Solucionar"]) if "Solucionar" in df_filtrado.columns else df_filtrado
+            if "original_index" in df_enviar.columns:
+                df_enviar = df_enviar.drop(columns=["original_index"])
+            
             texto_rel = f"*RELATÓRIO ZELO KITCHEN - {obter_agora_br().strftime('%d/%m/%Y')}*\n"
             texto_rel += f"Filtro aplicado: {tipo_visao}\n\n"
             
-            for _, row in df_filtrado.iterrows():
+            for _, row in df_enviar.iterrows():
                 status_res = f"\n✅ {row['Resolução']}" if row['Resolução'] != "" else "\n🔴 Status: Pendente de manutenção"
                 texto_rel += f"⚠️ *{row['Equipamento']}* ({row['Setor']})\nFalha: {row['Falhas']}\nObs: {row['Descrição do Problema']}{status_res}\n---\n"
             
             col_rel1, col_rel2, col_rel3 = st.columns(3)
             col_rel1.link_button("🟢 WhatsApp", f"https://wa.me/?text={urllib.parse.quote(texto_rel)}", use_container_width=True)
-            col_rel2.link_button("📧 E-mail", f"mailto:?subject=Relatorio&body={urllib.parse.quote(texto_rel)}", use_container_width=True)
-            col_rel3.download_button("📥 PDF", gerar_pdf(df_filtrado), f"Relatorio_{obter_agora_br().strftime('%Y%m%d')}.pdf", "application/pdf", use_container_width=True)
+            col_rel2.link_button("📧 E-mail", f"mailto:?subject=Relatorio_Zelo_Kitchen&body={urllib.parse.quote(texto_rel)}", use_container_width=True)
+            col_rel3.download_button("📥 PDF", gerar_pdf(df_enviar), f"Relatorio_{obter_agora_br().strftime('%Y%m%d')}.pdf", "application/pdf", use_container_width=True)
         else:
-            st.warning("Não há falhas para exibir com os filtros atuais.")
+            st.warning("Não há falhas na lista atual para gerar relatórios.")
     else:
         st.info("Nenhum registro encontrado.")
