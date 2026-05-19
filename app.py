@@ -148,7 +148,7 @@ with tab1:
                             if "200" in str(ex): st.session_state.sucesso = True; st.rerun()
                             else: st.error(f"Erro ao salvar: {ex}")
 
-# --- ABA 2: HISTÓRICO CORRIGIDO COM QUEBRA DE LINHA E FLUXO DE RESOLUÇÃO ---
+# --- ABA 2: HISTÓRICO CORRIGIDO (DATA EM LINHA ÚNICA E BOTÃO OBJETIVO) ---
 with tab2:
     st.subheader("📜 Histórico de Registros")
     df_hist = carregar_dados()
@@ -159,7 +159,6 @@ with tab2:
         with st.expander("🔍 Filtros de Busca", expanded=True):
             col_v1, col_v2, col_v3 = st.columns(3)
             
-            # Filtro essencial para separar Pendentes de Solucionados
             tipo_visao = col_v1.radio("Visualização:", ["🔴 Apenas Pendentes", "🟢 Apenas Solucionados", "📋 Todos os Registros"], horizontal=True)
             f_set = col_v2.multiselect("Setores", options=setores_lista, default=setores_lista)
             f_sta = col_v3.multiselect("Status", options=["✅ OK", "❌ FALHA"], default=["❌ FALHA"])
@@ -172,11 +171,10 @@ with tab2:
             d_ini = col_d1.date_input("Início", value=data_min)
             d_fim = col_d2.date_input("Fim", value=data_max)
 
-        # Aplicação estrutural dos filtros
+        # Filtros
         mask = (df_hist["dt_temp"] >= d_ini) & (df_hist["dt_temp"] <= d_fim) & \
                (df_hist["Setor"].isin(f_set)) & (df_hist["Status"].isin(f_sta))
         
-        # Filtro condicional baseado na Resolução do problema
         if tipo_visao == "🔴 Apenas Pendentes":
             mask = mask & (df_hist["Resolução"] == "")
         elif tipo_visao == "🟢 Apenas Solucionados":
@@ -184,48 +182,52 @@ with tab2:
         
         df_filtrado = df_hist[mask].drop(columns=["dt_temp"]).sort_values(by=["Data", "Hora"], ascending=False)
         
-        # Captura se o usuário clicou em algum botão de resolver via parâmetro de URL interno do Streamlit
+        # URL Callback para capturar clique de resolução
         query_params = st.query_params
         if "resolver_id" in query_params:
             id_para_resolver = int(query_params["resolver_id"])
-            with st.spinner("Registrando solução da não conformidade..."):
+            with st.spinner("Registrando solução..."):
                 data_solucao = obter_agora_br().strftime("%d/%m/%Y %H:%M")
                 
-                # Carrega o Sheets bruto
                 df_original_sheets = conn.read(ttl=0)
                 df_original_sheets = df_original_sheets.loc[:, ~df_original_sheets.columns.str.contains('^Unnamed')]
                 
                 if "Resolução" not in df_original_sheets.columns:
                     df_original_sheets["Resolução"] = ""
                 
-                # Registra o encerramento na linha exata mapeada
                 df_original_sheets.loc[id_para_resolver, "Resolução"] = f"Solucionado em {data_solucao}"
                 
                 conn.update(data=df_original_sheets)
-                st.query_params.clear() # Limpa a URL
-                st.success("🎉 Problema marcado como solucionado!")
+                st.query_params.clear()
+                st.success("🎉 Problema solucionado!")
                 st.rerun()
 
-        # TABELA HTML EM INLINE COM QUEBRA DE LINHA FORÇADA E BOTÃO INTEGRADO
+        # TABELA HTML CUSTOMIZADA (VISUAL CLEAN & SEM QUEBRA DE DATAS)
         if not df_filtrado.empty:
-            # Determina as colunas no cabeçalho baseadas na visão selecionada
-            coluna_acao_header = "<th>Ação</th>" if tipo_visao == "🔴 Apenas Pendentes" else "<th>Histórico de Resolução</th>"
+            coluna_acao_header = '<th style="width: 120px; text-align: center;">Ação</th>' if tipo_visao == "🔴 Apenas Pendentes" else "<th>Histórico de Resolução</th>"
             
             html_tabela = f"""
             <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
             <style>
                 body {{ background-color: transparent !important; font-family: sans-serif; }}
-                th {{ background-color: #2c3e50 !important; color: white !important; font-size: 14px; position: sticky; top: 0; }}
+                th {{ background-color: #2c3e50 !important; color: white !important; font-size: 14px; position: sticky; top: 0; white-space: nowrap; }}
                 td {{ font-size: 13px; vertical-align: middle; word-break: break-word !important; white-space: normal !important; }}
+                
+                /* Força largura para impedir a quebra de linha em Data e Hora */
+                .col-data {{ min-width: 105px !important; white-space: nowrap !important; }}
+                .col-hora {{ min-width: 65px !important; white-space: nowrap !important; }}
+                
                 .table-container {{ max-height: 450px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; }}
-                .btn-solucionar {{ background-color: #2ecc71; color: white; border: none; padding: 4px 8px; font-size: 11px; border-radius: 3px; cursor: pointer; text-decoration: none; font-weight: bold; }}
-                .btn-solucionar:hover {{ background-color: #27ae60; color: white; }}
+                
+                /* Botão Objetivo Clean */
+                .btn-solucionar {{ background-color: #2ece71; color: white; border: none; padding: 5px 12px; font-size: 12px; border-radius: 4px; cursor: pointer; text-decoration: none; font-weight: 500; display: inline-block; }}
+                .btn-solucionar:hover {{ background-color: #27ae60; color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
             </style>
             <div class="table-container">
                 <table class="table table-striped table-hover m-0">
                     <thead>
                         <tr>
-                            <th>Data</th><th>Hora</th><th>Funcionário</th><th>Setor</th><th>Equipamento</th><th>Status</th><th>Falhas</th><th>Descrição do Problema</th>{coluna_acao_header}
+                            <th class="col-data">Data</th><th class="col-hora">Hora</th><th>Funcionário</th><th>Setor</th><th>Equipamento</th><th>Status</th><th>Falhas</th><th>Descrição do Problema</th>{coluna_acao_header}
                         </tr>
                     </thead>
                     <tbody>
@@ -236,34 +238,31 @@ with tab2:
                 idx_real = row.get('original_index')
                 resolucao_texto = row.get('Resolução', '')
                 
-                # Monta a última célula dinamicamente
                 if tipo_visao == "🔴 Apenas Pendentes":
-                    coluna_acao_td = f'<td><a href="?resolver_id={idx_real}" target="_self" class="btn-solucionar">✔️ Solucionado</a></td>'
+                    coluna_acao_td = f'<td style="text-align: center;"><a href="?resolver_id={idx_real}" target="_self" class="btn-solucionar">✓ Resolver</a></td>'
                 elif tipo_visao == "🟢 Apenas Solucionados":
-                    coluna_acao_td = f'<td class="text-success fw-bold">{resolucao_texto}</td>'
+                    coluna_acao_td = f'<td class="text-success fw-bold">✓ {resolucao_texto}</td>'
                 else:
-                    # Na visão de "Todos os registros", mostra o texto se houver, ou "Pendente"
                     if resolucao_texto != "":
-                        coluna_acao_td = f'<td class="text-success fw-bold">{resolucao_texto}</td>'
+                        coluna_acao_td = f'<td class="text-success fw-bold">✓ {resolucao_texto}</td>'
                     else:
                         coluna_acao_td = f'<td class="text-danger fw-bold">🔴 Pendente</td>'
                 
                 html_tabela += f"""
                         <tr>
-                            <td>{row.get('Data','')}</td>
-                            <td>{row.get('Hora','')}</td>
+                            <td class="col-data">{row.get('Data','')}</td>
+                            <td class="col-hora">{row.get('Hora','')}</td>
                             <td>{row.get('Funcionário','')}</td>
                             <td>{row.get('Setor','')}</td>
                             <td>{row.get('Equipamento','')}</td>
                             <td>{row.get('Status','')}</td>
                             <td>{row.get('Falhas','')}</td>
-                            <td style="min-width: 250px; max-width: 400px;">{desc_p}</td>
+                            <td style="min-width: 250px; max-width: 450px;">{desc_p}</td>
                             {coluna_acao_td}
                         </tr>
                 """
             html_tabela += "</tbody></table></div>"
             
-            # Injeta o HTML nativo
             st.components.v1.html(html_tabela, height=460, scrolling=False)
         else:
             st.write("Nenhum dado corresponde aos filtros selecionados.")
