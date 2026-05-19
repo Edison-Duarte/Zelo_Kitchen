@@ -72,12 +72,15 @@ def gerar_pdf(df_filtrado):
     return pdf.output(dest='S').encode('latin-1')
 
 # --- ESTRUTURA DO CHECKLIST ---
-setores_lista = ["Espaço Café", "Cozinha", "Mirante", "Refeitório"]
+setores_lista = ["Espaço Café", "Cozinha", "Mirante", "Refeitório", "Bar Varanda Alta", "Lanchonete", "Sushi"]
 itens_setores = {
-    "Espaço Café": ["Estufa quente", "Estufa fria", "Geladeiras balcão", "Frigobares", "Máquina de café expresso"],
-    "Cozinha": ["Geladeiras Bacio di Latte", "Geladeiras Resfriados", "Câmaras Frias", "Freezers Horizontais", "Fornos", "Fogões", "Fritadeiras", "Chapas", "Geladeiras Balcões", "Coifas", "Pista Fria"],
-    "Mirante": ["Freezer Sorvete Dona Mazza", "Adega Vinhos", "Geladeiras", "Geladeiras Balcões", "Lava Louças", "Coifas", "Pista Fria", "Elevador Monta Carga", "Freezer Horizontal", "Churrasqueira", "Forno a Lenha"],
-    "Refeitório": ["Lava Louças", "Geladeira Resfriados", "Rechaud"]
+    "Espaço Café": ["Máquina de Suco", "Estufa quente", "Estufa fria", "Geladeiras balcão", "Frigobares", "Máquina de café expresso"],
+    "Cozinha": ["Geladeiras Bacio di Latte", "Geladeiras Resfriados", "Câmaras Frias", "Freezers Horizontais", "Fornos", "Fogões", "Fritadeiras", "Chapas", "Geladeiras Balcões", "Coifas", "Pista Fria", "Banho Maria", "Máquina de Suco"],
+    "Mirante": ["Máquina de Suco", "Freezer Sorvete Dona Mazza", "Adega Vinhos", "Geladeiras", "Geladeiras Balcões", "Lava Louças", "Coifas", "Pista Fria", "Elevador Monta Carga", "Freezer Horizontal", "Churrasqueira", "Forno a Lenha"],
+    "Refeitório": ["Lava Louças", "Geladeira Resfriados", "Rechaud"],
+    "Bar Varanda Alta": ["Geladeira Bancada", "Freezer Bancada", "Máquina de Gelo"],
+    "Lanchonete": ["Geladeira Bacio de Latte", "Geladeiras Cervejas", "Máquina de Café", "Choppeira", "Estufa Salgados"],
+    "Sushi": ["Fogão", "Freezer Horizontal", "Geladeira Bancada", "Estufa Fria"]
 }
 
 st.title("🍳 Sistema de Inspeção Zelo Kitchen")
