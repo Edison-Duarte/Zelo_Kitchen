@@ -32,13 +32,9 @@ except Exception as e:
 def carregar_dados():
     try:
         df = conn.read(ttl=0)
-        # Limpeza: Remove colunas "fantasmas"
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-        
-        # Mapeia o índice real da linha para fazer a alteração correta no Sheets
         df["original_index"] = df.index
         
-        # Garante que a coluna de controle seja tratada como texto limpo
         if "Resolução" in df.columns:
             df["Resolução"] = df["Resolução"].fillna("").astype(str).str.strip()
         else:
@@ -228,7 +224,7 @@ with tab2:
             else:
                 st.info("Nenhuma pendência em aberto para os filtros selecionados.")
                 
-        # MODO HISTÓRICO ORIGINAL (Visualização em HTML com Títulos Escuros e Quebra de Linha Total)
+        # MODO HISTÓRICO ORIGINAL COM DESIGN TOTALMENTE RESPONSIVO PARA SMARTPHONES (TABELA -> CARDS)
         else:
             st.subheader(f"📋 {tipo_visao}")
             
@@ -237,9 +233,52 @@ with tab2:
                 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
                 <style>
                     body { background-color: transparent !important; font-family: sans-serif; }
-                    th { background-color: #2c3e50 !important; color: white !important; font-size: 14px; position: sticky; top: 0; padding: 10px !important; }
-                    td { font-size: 13px; vertical-align: middle; word-break: break-word !important; white-space: normal !important; padding: 8px !important; }
-                    .table-container { max-height: 500px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; }
+                    .table-container { max-height: 520px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; }
+                    
+                    /* Design Clássico para Desktop */
+                    th { background-color: #2c3e50 !important; color: white !important; font-size: 14px; position: sticky; top: 0; padding: 12px 10px !important; text-align: left; }
+                    td { font-size: 13px; vertical-align: middle; word-break: break-word !important; white-space: normal !important; padding: 10px 8px !important; }
+                    
+                    /* REGRAS EXCLUSIVAS PARA CELULAR (Telas menores que 768px) */
+                    @media (max-width: 768px) {
+                        .table-container { max-height: none; overflow-y: visible; border: none; }
+                        table, tragedies, thead, tbody, th, td, tr { display: block; width: 100%; }
+                        thead { display: none; } /* Oculta a linha de cabeçalhos no mobile */
+                        
+                        tr {
+                            background: #ffffff !important;
+                            border: 1px solid #e0e0e0;
+                            border-radius: 8px;
+                            margin-bottom: 15px;
+                            padding: 12px;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+                        }
+                        
+                        td {
+                            text-align: left !important;
+                            padding: 6px 4px !important;
+                            border: none !important;
+                            font-size: 13px;
+                            display: flex;
+                            flex-wrap: wrap;
+                        }
+                        
+                        /* Injeta o nome da coluna dinamicamente antes do conteúdo no mobile */
+                        td::before {
+                            content: attr(data-label);
+                            font-weight: bold;
+                            color: #2c3e50;
+                            width: 120px;
+                            min-width: 120px;
+                            display: inline-block;
+                        }
+                        
+                        /* Ajuste interno para os textos longos não quebrarem o layout do card */
+                        td .cell-content {
+                            flex: 1;
+                            word-break: break-word;
+                        }
+                    }
                 </style>
                 <div class="table-container">
                     <table class="table table-striped table-hover m-0">
@@ -254,7 +293,6 @@ with tab2:
                     desc_p = str(row.get('Descrição do Problema', '')) if pd.notna(row.get('Descrição do Problema')) else ""
                     resolucao_p = str(row.get('Resolução', '')) if pd.notna(row.get('Resolução')) else ""
                     
-                    # Formata badges verdes para itens resolvidos visualmente na tabela
                     if resolucao_p:
                         resolucao_html = f"<span class='badge bg-success' style='font-size:11px; padding:6px;'>{resolucao_p}</span>"
                     else:
@@ -262,21 +300,21 @@ with tab2:
 
                     html_tabela += f"""
                             <tr>
-                                <td style="white-space: nowrap !important;">{row.get('Data_Exibicao','')}</td>
-                                <td>{row.get('Hora_Exibicao','')}</td>
-                                <td>{row.get('Funcionário','')}</td>
-                                <td>{row.get('Setor','')}</td>
-                                <td>{row.get('Equipamento','')}</td>
-                                <td>{row.get('Status','')}</td>
-                                <td>{row.get('Falhas','')}</td>
-                                <td style="min-width: 250px; max-width: 400px;">{desc_p}</td>
-                                <td style="min-width: 180px;">{resolucao_html}</td>
+                                <td data-label="Data"><div class="cell-content" style="white-space: nowrap;">{row.get('Data_Exibicao','')}</div></td>
+                                <td data-label="Hora"><div class="cell-content">{row.get('Hora_Exibicao','')}</div></td>
+                                <td data-label="Inspetor"><div class="cell-content">{row.get('Funcionário','')}</div></td>
+                                <td data-label="Setor"><div class="cell-content">{row.get('Setor','')}</div></td>
+                                <td data-label="Equipamento"><div class="cell-content"><b>{row.get('Equipamento','')}</b></div></td>
+                                <td data-label="Status"><div class="cell-content">{row.get('Status','')}</div></td>
+                                <td data-label="Falhas"><div class="cell-content">{row.get('Falhas','')}</div></td>
+                                <td data-label="Descrição" style="min-width: 250px; max-width: 450px;"><div class="cell-content">{desc_p}</div></td>
+                                <td data-label="Resolução" style="min-width: 180px;"><div class="cell-content">{resolucao_html}</div></td>
                             </tr>
                     """
                 html_tabela += "</tbody></table></div>"
                 
-                # Renderiza a tabela HTML exatamente no formato original
-                st.components.v1.html(html_tabela, height=510, scrolling=False)
+                # Renderiza o visual customizado e inteligente (Tabela para PC, Cartões para celular)
+                st.components.v1.html(html_tabela, height=540, scrolling=True)
             else:
                 st.info("Nenhum registro encontrado para os filtros selecionados.")
 
