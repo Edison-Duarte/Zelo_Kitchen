@@ -32,25 +32,32 @@ except Exception as e:
 def carregar_dados():
     try:
         df = conn.read(ttl=0)
-        # Limpeza: Remove colunas "fantasmas" (Unnamed)
+        # Limpeza: Remove colunas "fantasmas" ou inteiramente vazias
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         
         # Mapeia o índice real da linha para fazer a alteração correta no Sheets
         df["original_index"] = df.index
         
+        # Se a coluna Resolução não existir ou vier errada, garante que vire texto limpo
+        if "Resolução" in df.columns:
+            df["Resolução"] = df["Resolução"].fillna("").astype(str).str.strip()
+        else:
+            df["Resolução"] = ""
+        
         if not df.empty and "Data/Hora" in df.columns:
             df_dt = pd.to_datetime(df["Data/Hora"], dayfirst=True, errors='coerce')
-            df["Data"] = df_dt.dt.strftime('%d/%m/%Y')
-            df["Hora"] = df_dt.dt.strftime('%H:%M')
+            df["Data_Exibicao"] = df_dt.dt.strftime('%d/%m/%Y')
+            df["Hora_Exibicao"] = df_dt.dt.strftime('%H:%M')
         else:
-            df["Data"] = ""
-            df["Hora"] = ""
+            df["Data_Exibicao"] = ""
+            df["Hora_Exibicao"] = ""
         
-        colunas_desejadas = ["Data", "Hora", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema", "Resolução", "original_index"]
+        # Alinhado exatamente com o cabeçalho real da sua planilha do Drive
+        colunas_desejadas = ["Data_Exibicao", "Hora_Exibicao", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema", "Resolução", "original_index"]
         df_limpo = df[[c for c in colunas_desejadas if c in df.columns]]
         return df_limpo
     except Exception as e:
-        return pd.DataFrame(columns=["Data", "Hora", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema", "Resolução", "original_index"])
+        return pd.DataFrame(columns=["Data_Exibicao", "Hora_Exibicao", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema", "Resolução", "original_index"])
 
 # --- FUNÇÃO PARA GERAR PDF ---
 def gerar_pdf(df_filtrado):
@@ -69,7 +76,7 @@ def gerar_pdf(df_filtrado):
         pdf.set_font("Arial", "", 10)
         desc = str(row.get('Descrição do Problema', '')).replace('\n', ' ') if row.get('Descrição do Problema') else "Nenhuma"
         res_text = f"\nSolucao: {row.get('Resolução')}" if row.get('Resolução') else "\nStatus: PENDENTE"
-        pdf.multi_cell(190, 7, f"Data: {row.get('Data', '')} {row.get('Hora', '')}\nInspetor: {row.get('Funcionário', '')}\nFalha: {row.get('Falhas', '')}\nDescricao: {desc}{res_text}")
+        pdf.multi_cell(190, 7, f"Data: {row.get('Data_Exibicao', '')} {row.get('Hora_Exibicao', '')}\nInspetor: {row.get('Funcionário', '')}\nFalha: {row.get('Falhas', '')}\nDescricao: {desc}{res_text}")
         pdf.ln(5)
     return pdf.output(dest='S').encode('latin-1')
 
@@ -113,7 +120,7 @@ with tab1:
                     
                     detalhes_obs = ""
                     if any(x == "NÃO" for x in [h, f, e]):
-                        detalhes_obs = st.text_area(f"Descreva o problema:", key=f"obs_{item}")
+                        detalhes_obs = st.text_area(f"Descreva o problem:", key=f"obs_{item}")
                     
                     respostas.append({"Equipamento": item, "H": h, "F": f, "E": e, "Detalhes": detalhes_obs})
 
@@ -127,10 +134,12 @@ with tab1:
                         for r in respostas:
                             f_list = [n for n, v in zip(["Higiene", "Funcionamento", "Estado"], [r["H"], r["F"], r["E"]]) if v == "NÃO"]
                             novas_entradas.append({
-                                "Data/Hora": agora, "Funcionário": nome_inspetor, "Setor": setor_selecionado,
-                                "Equipamento": r["Equipamento"], "Status": "❌ FALHA" if f_list else "✅ OK",
-                                "Falhas": ", ".join(f_list) if f_list else "Nenhuma", "Descrição do Problema": r["Detalhes"],
-                                "Resolução": ""
+                                "Data": "", # Mantém a estrutura de colunas antigas da planilha
+                                "Funcionário": nome_inspetor, "Setor": setor_selecionado,
+                                "Equipamentos": "", "Status": "❌ FALHA" if f_list else "✅ OK",
+                                "Falha": "", "Data_Obj": "", "Data/Hora": agora, 
+                                "Equipamento": r["Equipamento"], "Falhas": ", ".join(f_list) if f_list else "Nenhuma", 
+                                "Descrição do Problema": r["Detalhes"], "Resolução": ""
                             })
                         
                         try:
@@ -148,8 +157,6 @@ with tab2:
     df_hist = carregar_dados()
     
     if not df_hist.empty:
-        df_hist["Resolução"] = df_hist["Resolução"].fillna("").astype(str).str.strip()
-        
         with st.expander("🔍 Filtros de Busca", expanded=True):
             col_v1, col_v2, col_v3 = st.columns(3)
             tipo_visao = col_v1.radio("Visualização:", ["🔴 Apenas Pendentes", "🟢 Apenas Solucionados", "📋 Todos os Registros"], horizontal=True)
@@ -157,13 +164,13 @@ with tab2:
             f_sta = col_v3.multiselect("Status", options=["✅ OK", "❌ FALHA"], default=["❌ FALHA"])
 
             col_d1, col_d2 = st.columns(2)
-            df_hist["dt_temp"] = pd.to_datetime(df_hist["Data"], dayfirst=True, errors='coerce').dt.date
+            df_hist["dt_temp"] = pd.to_datetime(df_hist["Data_Exibicao"], dayfirst=True, errors='coerce').dt.date
             data_min = df_hist["dt_temp"].dropna().min() if not df_hist["dt_temp"].dropna().empty else obter_agora_br().date()
             data_max = df_hist["dt_temp"].dropna().max() if not df_hist["dt_temp"].dropna().empty else obter_agora_br().date()
             d_ini = col_d1.date_input("Início", value=data_min)
             d_fim = col_d2.date_input("Fim", value=data_max)
 
-        # Filtros de Dados
+        # Filtros de Dados aplicados no painel
         mask = (df_hist["dt_temp"] >= d_ini) & (df_hist["dt_temp"] <= d_fim) & \
                (df_hist["Setor"].isin(f_set)) & (df_hist["Status"].isin(f_sta))
         
@@ -172,45 +179,47 @@ with tab2:
         elif tipo_visao == "🟢 Apenas Solucionados":
             mask = mask & (df_hist["Resolução"] != "")
         
-        df_filtrado = df_hist[mask].drop(columns=["dt_temp"]).sort_values(by=["Data", "Hora"], ascending=False)
+        df_filtrado = df_hist[mask].drop(columns=["dt_temp"]).sort_values(by=["Data_Exibicao", "Hora_Exibicao"], ascending=False)
 
         st.markdown("---")
         
         if tipo_visao == "🔴 Apenas Pendentes":
             st.subheader("🚨 Lista de Pendências em Aberto")
-            st.caption("Marque a caixinha na coluna **'Solucionar'** e clique no botão abaixo para dar baixa e retirá-lo desta lista.")
+            st.caption("Marque a caixinha na coluna **'Solucionar'** e clique no botão abaixo para dar baixa no problema.")
             
             if not df_filtrado.empty:
-                # Adiciona coluna temporária de checkbox na primeira posição
                 df_filtrado.insert(0, "Solucionar", False)
                 
-                # Editor interativo com larguras controladas (Evita quebra de data/hora)
                 df_editado = st.data_editor(
                     df_filtrado,
                     use_container_width=True,
                     hide_index=True,
                     column_config={
                         "Solucionar": st.column_config.CheckboxColumn("Solucionar", default=False),
-                        "Data": st.column_config.TextColumn("Data", width="small"),
-                        "Hora": st.column_config.TextColumn("Hora", width="small"),
+                        "Data_Exibicao": st.column_config.TextColumn("Data", width="small"),
+                        "Hora_Exibicao": st.column_config.TextColumn("Hora", width="small"),
                         "Descrição do Problema": st.column_config.TextColumn("Descrição do Problema", width="large"),
                         "Resolução": None,  # Oculta pois está em aberto
                         "original_index": None  # Oculta coluna técnica do ID
                     },
-                    disabled=["Data", "Hora", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema"]
+                    disabled=["Data_Exibicao", "Hora_Exibicao", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema"]
                 )
                 
                 if st.button("✓ CONFIRMAR SOLUÇÃO DOS ITENS SELECIONADOS", type="primary"):
                     itens_marcados = df_editado[df_editado["Solucionar"] == True]
                     
                     if not itens_marcados.empty:
-                        with st.spinner("Atualizando registros..."):
+                        with st.spinner("Atualizando registros no Google Sheets..."):
                             data_solucao = obter_agora_br().strftime("%d/%m/%Y %H:%M")
                             
+                            # Re-lê diretamente a planilha bruta
                             df_sheets = conn.read(ttl=0)
                             df_sheets = df_sheets.loc[:, ~df_sheets.columns.str.contains('^Unnamed')]
                             
-                            # Grava o texto de solução diretamente no índice correspondente da planilha
+                            # EVITA O TYPEERROR: Força a coluna inteira a aceitar Texto (String) antes da gravação
+                            df_sheets["Resolução"] = df_sheets["Resolução"].fillna("").astype(str)
+                            
+                            # Grava o texto usando o índice puro mapeado
                             for _, row in itens_marcados.iterrows():
                                 idx_alvo = int(row["original_index"])
                                 df_sheets.loc[idx_alvo, "Resolução"] = f"Solucionado em {data_solucao}"
@@ -224,16 +233,15 @@ with tab2:
                 st.info("Nenhuma pendência em aberto para os filtros selecionados.")
                 
         else:
-            # Visão de histórico (Somente Leitura) para Solucionados ou Todos
-            st.subheader("📋 Histórico Geral")
+            st.subheader("📋 Histórico Geral de Registros")
             if not df_filtrado.empty:
                 st.dataframe(
                     df_filtrado,
                     use_container_width=True,
                     hide_index=True,
                     column_config={
-                        "Data": st.column_config.TextColumn("Data", width="small"),
-                        "Hora": st.column_config.TextColumn("Hora", width="small"),
+                        "Data_Exibicao": st.column_config.TextColumn("Data", width="small"),
+                        "Hora_Exibicao": st.column_config.TextColumn("Hora", width="small"),
                         "Descrição do Problema": st.column_config.TextColumn("Descrição do Problema", width="large"),
                         "Resolução": st.column_config.TextColumn("Histórico de Resolução", width="medium"),
                         "original_index": None
