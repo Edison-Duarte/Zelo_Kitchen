@@ -32,13 +32,13 @@ except Exception as e:
 def carregar_dados():
     try:
         df = conn.read(ttl=0)
-        # Limpeza: Remove colunas "fantasmas" ou inteiramente vazias
+        # Limpeza: Remove colunas "fantasmas"
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         
         # Mapeia o índice real da linha para fazer a alteração correta no Sheets
         df["original_index"] = df.index
         
-        # Se a coluna Resolução não existir ou vier errada, garante que vire texto limpo
+        # Garante que a coluna de controle seja tratada como texto limpo
         if "Resolução" in df.columns:
             df["Resolução"] = df["Resolução"].fillna("").astype(str).str.strip()
         else:
@@ -52,7 +52,6 @@ def carregar_dados():
             df["Data_Exibicao"] = ""
             df["Hora_Exibicao"] = ""
         
-        # Alinhado exatamente com o cabeçalho real da sua planilha do Drive
         colunas_desejadas = ["Data_Exibicao", "Hora_Exibicao", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema", "Resolução", "original_index"]
         df_limpo = df[[c for c in colunas_desejadas if c in df.columns]]
         return df_limpo
@@ -120,7 +119,7 @@ with tab1:
                     
                     detalhes_obs = ""
                     if any(x == "NÃO" for x in [h, f, e]):
-                        detalhes_obs = st.text_area(f"Descreva o problem:", key=f"obs_{item}")
+                        detalhes_obs = st.text_area(f"Descreva o problema:", key=f"obs_{item}")
                     
                     respostas.append({"Equipamento": item, "H": h, "F": f, "E": e, "Detalhes": detalhes_obs})
 
@@ -134,7 +133,7 @@ with tab1:
                         for r in respostas:
                             f_list = [n for n, v in zip(["Higiene", "Funcionamento", "Estado"], [r["H"], r["F"], r["E"]]) if v == "NÃO"]
                             novas_entradas.append({
-                                "Data": "", # Mantém a estrutura de colunas antigas da planilha
+                                "Data": "", 
                                 "Funcionário": nome_inspetor, "Setor": setor_selecionado,
                                 "Equipamentos": "", "Status": "❌ FALHA" if f_list else "✅ OK",
                                 "Falha": "", "Data_Obj": "", "Data/Hora": agora, 
@@ -170,7 +169,7 @@ with tab2:
             d_ini = col_d1.date_input("Início", value=data_min)
             d_fim = col_d2.date_input("Fim", value=data_max)
 
-        # Filtros de Dados aplicados no painel
+        # Aplicação dos filtros de dados
         mask = (df_hist["dt_temp"] >= d_ini) & (df_hist["dt_temp"] <= d_fim) & \
                (df_hist["Setor"].isin(f_set)) & (df_hist["Status"].isin(f_sta))
         
@@ -183,6 +182,7 @@ with tab2:
 
         st.markdown("---")
         
+        # MODO INTERATIVO (Apenas para dar baixa nas Pendências)
         if tipo_visao == "🔴 Apenas Pendentes":
             st.subheader("🚨 Lista de Pendências em Aberto")
             st.caption("Marque a caixinha na coluna **'Solucionar'** e clique no botão abaixo para dar baixa no problema.")
@@ -199,8 +199,8 @@ with tab2:
                         "Data_Exibicao": st.column_config.TextColumn("Data", width="small"),
                         "Hora_Exibicao": st.column_config.TextColumn("Hora", width="small"),
                         "Descrição do Problema": st.column_config.TextColumn("Descrição do Problema", width="large"),
-                        "Resolução": None,  # Oculta pois está em aberto
-                        "original_index": None  # Oculta coluna técnica do ID
+                        "Resolução": None,
+                        "original_index": None
                     },
                     disabled=["Data_Exibicao", "Hora_Exibicao", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema"]
                 )
@@ -212,14 +212,10 @@ with tab2:
                         with st.spinner("Atualizando registros no Google Sheets..."):
                             data_solucao = obter_agora_br().strftime("%d/%m/%Y %H:%M")
                             
-                            # Re-lê diretamente a planilha bruta
                             df_sheets = conn.read(ttl=0)
                             df_sheets = df_sheets.loc[:, ~df_sheets.columns.str.contains('^Unnamed')]
-                            
-                            # EVITA O TYPEERROR: Força a coluna inteira a aceitar Texto (String) antes da gravação
                             df_sheets["Resolução"] = df_sheets["Resolução"].fillna("").astype(str)
                             
-                            # Grava o texto usando o índice puro mapeado
                             for _, row in itens_marcados.iterrows():
                                 idx_alvo = int(row["original_index"])
                                 df_sheets.loc[idx_alvo, "Resolução"] = f"Solucionado em {data_solucao}"
@@ -232,21 +228,55 @@ with tab2:
             else:
                 st.info("Nenhuma pendência em aberto para os filtros selecionados.")
                 
+        # MODO HISTÓRICO ORIGINAL (Visualização em HTML com Títulos Escuros e Quebra de Linha Total)
         else:
-            st.subheader("📋 Histórico Geral de Registros")
+            st.subheader(f"📋 {tipo_visao}")
+            
             if not df_filtrado.empty:
-                st.dataframe(
-                    df_filtrado,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Data_Exibicao": st.column_config.TextColumn("Data", width="small"),
-                        "Hora_Exibicao": st.column_config.TextColumn("Hora", width="small"),
-                        "Descrição do Problema": st.column_config.TextColumn("Descrição do Problema", width="large"),
-                        "Resolução": st.column_config.TextColumn("Histórico de Resolução", width="medium"),
-                        "original_index": None
-                    }
-                )
+                html_tabela = """
+                <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
+                <style>
+                    body { background-color: transparent !important; font-family: sans-serif; }
+                    th { background-color: #2c3e50 !important; color: white !important; font-size: 14px; position: sticky; top: 0; padding: 10px !important; }
+                    td { font-size: 13px; vertical-align: middle; word-break: break-word !important; white-space: normal !important; padding: 8px !important; }
+                    .table-container { max-height: 500px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; }
+                </style>
+                <div class="table-container">
+                    <table class="table table-striped table-hover m-0">
+                        <thead>
+                            <tr>
+                                <th>Data</th><th>Hora</th><th>Funcionário</th><th>Setor</th><th>Equipamento</th><th>Status</th><th>Falhas</th><th>Descrição do Problema</th><th>Histórico de Resolução</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                """
+                for _, row in df_filtrado.iterrows():
+                    desc_p = str(row.get('Descrição do Problema', '')) if pd.notna(row.get('Descrição do Problema')) else ""
+                    resolucao_p = str(row.get('Resolução', '')) if pd.notna(row.get('Resolução')) else ""
+                    
+                    # Formata badges verdes para itens resolvidos visualmente na tabela
+                    if resolucao_p:
+                        resolucao_html = f"<span class='badge bg-success' style='font-size:11px; padding:6px;'>{resolucao_p}</span>"
+                    else:
+                        resolucao_html = "<span class='badge bg-secondary' style='font-size:11px; padding:6px;'>Pendente</span>"
+
+                    html_tabela += f"""
+                            <tr>
+                                <td style="white-space: nowrap !important;">{row.get('Data_Exibicao','')}</td>
+                                <td>{row.get('Hora_Exibicao','')}</td>
+                                <td>{row.get('Funcionário','')}</td>
+                                <td>{row.get('Setor','')}</td>
+                                <td>{row.get('Equipamento','')}</td>
+                                <td>{row.get('Status','')}</td>
+                                <td>{row.get('Falhas','')}</td>
+                                <td style="min-width: 250px; max-width: 400px;">{desc_p}</td>
+                                <td style="min-width: 180px;">{resolucao_html}</td>
+                            </tr>
+                    """
+                html_tabela += "</tbody></table></div>"
+                
+                # Renderiza a tabela HTML exatamente no formato original
+                st.components.v1.html(html_tabela, height=510, scrolling=False)
             else:
                 st.info("Nenhum registro encontrado para os filtros selecionados.")
 
