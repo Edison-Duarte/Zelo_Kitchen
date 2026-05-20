@@ -10,64 +10,14 @@ import io
 # --- CONFIGURAÇÕES DA PÁGINA ---
 st.set_page_config(page_title="Zelo Kitchen - Inspeção", page_icon="🍳", layout="wide")
 
-# CSS para interface geral, botões e estilização dos cards mobile
+# CSS para interface geral e botões
 st.markdown("""
     <style>
         .main { background-color: #f9f9f9; }
         .stButton>button { border-radius: 5px; height: 3em; width: 100%; }
         .block-container { padding-top: 2rem; padding-bottom: 2rem; }
-        
-        /* Estilização dos Cards Mobile de Pendências */
-        .mobile-card {
-            background-color: #ffffff;
-            border: 1px solid #e0e0e0;
-            border-left: 5px solid #dc3545;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 15px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }
-        .mobile-card-title {
-            font-size: 16px;
-            font-weight: bold;
-            color: #2c3e50;
-            margin-bottom: 8px;
-        }
-        .mobile-card-meta {
-            font-size: 12px;
-            color: #6c757d;
-            margin-bottom: 10px;
-        }
-        .mobile-card-desc {
-            font-size: 14px;
-            background-color: #f8f9fa;
-            padding: 10px;
-            border-radius: 5px;
-            border: 1px dashed #dee2e6;
-            word-break: break-word;
-            white-space: pre-wrap;
-        }
     </style>
 """, unsafe_allow_html=True)
-
-# --- DETECTOR AUTOMÁTICO DE DISPOSITIVO (MOBILE VS PC) ---
-# Injeta um componente JS invisível para ler a largura da tela
-janela_info = st.components.v1.html(
-    """
-    <script>
-        const largura = window.parent.innerWidth;
-        // Se a tela for menor que 768px, define como mobile
-        const ehMobile = largura < 768; 
-        window.parent.postMessage({type: 'streamlit:setComponentValue', value: ehMobile}, '*');
-    </script>
-    """,
-    height=0,
-)
-
-# Captura a resposta do script. Se falhar ou estiver carregando, assume False (PC) por segurança
-eh_dispositivo_mobile = st.session_state.get("eh_mobile_detectado", False)
-if janela_info:
-    eh_dispositivo_mobile = janela_info
 
 fuso_br = pytz.timezone('America/Sao_Paulo')
 def obter_agora_br():
@@ -82,9 +32,13 @@ except Exception as e:
 def carregar_dados():
     try:
         df = conn.read(ttl=0)
+        # Limpeza: Remove colunas "fantasmas"
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+        
+        # Mapeia o índice real da linha para fazer a alteração correta no Sheets
         df["original_index"] = df.index
         
+        # Garante que a coluna de controle seja tratada como texto limpo
         if "Resolução" in df.columns:
             df["Resolução"] = df["Resolução"].fillna("").astype(str).str.strip()
         else:
@@ -228,98 +182,53 @@ with tab2:
 
         st.markdown("---")
         
-        # MODO INTERATIVO (Dar baixa nas Pendências)
+        # MODO INTERATIVO (Apenas para dar baixa nas Pendências)
         if tipo_visao == "🔴 Apenas Pendentes":
             st.subheader("🚨 Lista de Pendências em Aberto")
+            st.caption("Marque a caixinha na coluna **'Solucionar'** e clique no botão abaixo para dar baixa no problema.")
             
             if not df_filtrado.empty:
+                df_filtrado.insert(0, "Solucionar", False)
                 
-                # EXECUÇÃO DO LAYOUT RESPONSIVO AUTOMÁTICO
-                if eh_dispositivo_mobile:
-                    # --- LAYOUT EXCLUSIVO PARA CELULAR (CARDS) ---
-                    st.caption("Selecione abaixo os equipamentos que deseja solucionar e confirme no botão vermelho:")
+                df_editado = st.data_editor(
+                    df_filtrado,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Solucionar": st.column_config.CheckboxColumn("Solucionar", default=False),
+                        "Data_Exibicao": st.column_config.TextColumn("Data", width="small"),
+                        "Hora_Exibicao": st.column_config.TextColumn("Hora", width="small"),
+                        "Descrição do Problema": st.column_config.TextColumn("Descrição do Problema", width="large"),
+                        "Resolução": None,
+                        "original_index": None
+                    },
+                    disabled=["Data_Exibicao", "Hora_Exibicao", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema"]
+                )
+                
+                if st.button("✓ CONFIRMAR SOLUÇÃO DOS ITENS SELECIONADOS", type="primary"):
+                    itens_marcados = df_editado[df_editado["Solucionar"] == True]
                     
-                    # Cria as opções para o Multiselect baseado no index original
-                    opcoes_fáceis = {}
-                    for _, r in df_filtrado.iterrows():
-                        label_item = f"⚠️ {r['Equipamento']} ({r['Setor']}) - {r['Data_Exibicao']}"
-                        opcoes_fáceis[label_item] = int(r["original_index"])
-                    
-                    itens_selecionados_mobile = st.multiselect("Toque para escolher um ou mais itens corrigidos:", options=list(opcoes_fáceis.keys()))
-                    
-                    # Renderiza visualmente os blocos em HTML limpo para leitura confortável no mobile
-                    for _, r in df_filtrado.iterrows():
-                        desc_limpa = r['Descrição do Problema'] if pd.notna(r['Descrição do Problema']) and r['Descrição do Problema'] != "" else "Sem descrição registrada."
-                        card_html = f"""
-                        <div class="mobile-card">
-                            <div class="mobile-card-title">⚠️ {r['Equipamento']} ({r['Setor']})</div>
-                            <div class="mobile-card-meta"><b>Inspetor:</b> {r['Funcionário']} | <b>Data:</b> {r['Data_Exibicao']} às {r['Hora_Exibicao']}<br><b>Falha:</b> {r['Falhas']}</div>
-                            <div class="mobile-card-desc"><b>Problema:</b> {desc_limpa}</div>
-                        </div>
-                        """
-                        st.markdown(card_html, unsafe_allow_html=True)
-                        
-                    # Botão de confirmação exclusivo do celular
-                    if st.button("✓ CONFIRMAR SOLUÇÃO DOS ITENS SELECIONADOS", type="primary", key="btn_mob"):
-                        if itens_selecionados_mobile:
-                            with st.spinner("Atualizando registros no Google Sheets..."):
-                                data_solucao = obter_agora_br().strftime("%d/%m/%Y %H:%M")
-                                df_sheets = conn.read(ttl=0)
-                                df_sheets = df_sheets.loc[:, ~df_sheets.columns.str.contains('^Unnamed')]
-                                df_sheets["Resolução"] = df_sheets["Resolução"].fillna("").astype(str)
-                                
-                                for item_rotulo in itens_selecionados_mobile:
-                                    idx_alvo = opcoes_fáceis[item_rotulo]
-                                    df_sheets.loc[idx_alvo, "Resolução"] = f"Solucionado em {data_solucao}"
-                                
-                                conn.update(data=df_sheets)
-                                st.success("🎉 Item(ns) solucionado(s) com sucesso!")
-                                st.rerun()
-                        else:
-                            st.warning("Nenhum item selecionado no campo de escolha acima.")
+                    if not itens_marcados.empty:
+                        with st.spinner("Atualizando registros no Google Sheets..."):
+                            data_solucao = obter_agora_br().strftime("%d/%m/%Y %H:%M")
                             
-                else:
-                    # --- LAYOUT ORIGINAL DO COMPUTADOR (TABELA ORIGINAL COMPLETA) ---
-                    st.caption("Marque a caixinha na coluna **'Solucionar'** e clique no botão abaixo para dar baixa.")
-                    df_filtrado.insert(0, "Solucionar", False)
-                    df_editado = st.data_editor(
-                        df_filtrado,
-                        use_container_width=True,
-                        hide_index=True,
-                        column_config={
-                            "Solucionar": st.column_config.CheckboxColumn("Solucionar", default=False),
-                            "Data_Exibicao": st.column_config.TextColumn("Data", width="small"),
-                            "Hora_Exibicao": st.column_config.TextColumn("Hora", width="small"),
-                            "Descrição do Problema": st.column_config.TextColumn("Descrição do Problema", width="large"),
-                            "Resolução": None,
-                            "original_index": None
-                        },
-                        disabled=["Data_Exibicao", "Hora_Exibicao", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema"]
-                    )
-                    
-                    # Botão de confirmação original do Computador
-                    if st.button("✓ CONFIRMAR SOLUÇÃO DOS ITENS SELECIONADOS", type="primary", key="btn_pc"):
-                        itens_marcados = df_editado[df_editado["Solucionar"] == True]
-                        if not itens_marcados.empty:
-                            with st.spinner("Atualizando registros no Google Sheets..."):
-                                data_solucao = obter_agora_br().strftime("%d/%m/%Y %H:%M")
-                                df_sheets = conn.read(ttl=0)
-                                df_sheets = df_sheets.loc[:, ~df_sheets.columns.str.contains('^Unnamed')]
-                                df_sheets["Resolução"] = df_sheets["Resolução"].fillna("").astype(str)
-                                
-                                for _, row in itens_marcados.iterrows():
-                                    idx_alvo = int(row["original_index"])
-                                    df_sheets.loc[idx_alvo, "Resolução"] = f"Solucionado em {data_solucao}"
-                                
-                                conn.update(data=df_sheets)
-                                st.success("🎉 Item(ns) solucionado(s) com sucesso!")
-                                st.rerun()
-                        else:
-                            st.warning("Nenhum item marcado na tabela.")
+                            df_sheets = conn.read(ttl=0)
+                            df_sheets = df_sheets.loc[:, ~df_sheets.columns.str.contains('^Unnamed')]
+                            df_sheets["Resolução"] = df_sheets["Resolução"].fillna("").astype(str)
+                            
+                            for _, row in itens_marcados.iterrows():
+                                idx_alvo = int(row["original_index"])
+                                df_sheets.loc[idx_alvo, "Resolução"] = f"Solucionado em {data_solucao}"
+                            
+                            conn.update(data=df_sheets)
+                            st.success("🎉 Item(ns) solucionado(s) com sucesso!")
+                            st.rerun()
+                    else:
+                        st.warning("Nenhum item marcado. Selecione ao menos uma caixinha.")
             else:
                 st.info("Nenhuma pendência em aberto para os filtros selecionados.")
                 
-        # HISTÓRICO ORIGINAL GERAL 
+        # MODO HISTÓRICO ORIGINAL (Visualização em HTML com Títulos Escuros e Quebra de Linha Total)
         else:
             st.subheader(f"📋 {tipo_visao}")
             
@@ -328,33 +237,9 @@ with tab2:
                 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
                 <style>
                     body { background-color: transparent !important; font-family: sans-serif; }
-                    .table-container { max-height: 520px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; }
-                    th { background-color: #2c3e50 !important; color: white !important; font-size: 14px; position: sticky; top: 0; padding: 12px 10px !important; text-align: left; }
-                    td { font-size: 13px; vertical-align: middle; word-break: break-word !important; white-space: normal !important; padding: 10px 8px !important; }
-                    
-                    @media (max-width: 768px) {
-                        .table-container { max-height: none; overflow-y: visible; border: none; }
-                        table, tragedies, thead, tbody, th, td, tr { display: block; width: 100%; }
-                        thead { display: none; }
-                        tr {
-                            background: #ffffff !important;
-                            border: 1px solid #e0e0e0;
-                            border-radius: 8px;
-                            margin-bottom: 15px;
-                            padding: 12px;
-                            box-shadow: 0 2px 4px rgba(0,0,0,0.04);
-                        }
-                        td { text-align: left !important; padding: 6px 4px !important; border: none !important; font-size: 13px; display: flex; flex-wrap: wrap; }
-                        td::before {
-                            content: attr(data-label);
-                            font-weight: bold;
-                            color: #2c3e50;
-                            width: 120px;
-                            min-width: 120px;
-                            display: inline-block;
-                        }
-                        td .cell-content { flex: 1; word-break: break-word; }
-                    }
+                    th { background-color: #2c3e50 !important; color: white !important; font-size: 14px; position: sticky; top: 0; padding: 10px !important; }
+                    td { font-size: 13px; vertical-align: middle; word-break: break-word !important; white-space: normal !important; padding: 8px !important; }
+                    .table-container { max-height: 500px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; }
                 </style>
                 <div class="table-container">
                     <table class="table table-striped table-hover m-0">
@@ -369,6 +254,7 @@ with tab2:
                     desc_p = str(row.get('Descrição do Problema', '')) if pd.notna(row.get('Descrição do Problema')) else ""
                     resolucao_p = str(row.get('Resolução', '')) if pd.notna(row.get('Resolução')) else ""
                     
+                    # Formata badges verdes para itens resolvidos visualmente na tabela
                     if resolucao_p:
                         resolucao_html = f"<span class='badge bg-success' style='font-size:11px; padding:6px;'>{resolucao_p}</span>"
                     else:
@@ -376,19 +262,21 @@ with tab2:
 
                     html_tabela += f"""
                             <tr>
-                                <td data-label="Data"><div class="cell-content" style="white-space: nowrap;">{row.get('Data_Exibicao','')}</div></td>
-                                <td data-label="Hora"><div class="cell-content">{row.get('Hora_Exibicao','')}</div></td>
-                                <td data-label="Inspetor"><div class="cell-content">{row.get('Funcionário','')}</div></td>
-                                <td data-label="Setor"><div class="cell-content">{row.get('Setor','')}</div></td>
-                                <td data-label="Equipamento"><div class="cell-content"><b>{row.get('Equipamento','')}</b></div></td>
-                                <td data-label="Status"><div class="cell-content">{row.get('Status','')}</div></td>
-                                <td data-label="Falhas"><div class="cell-content">{row.get('Falhas','')}</div></td>
-                                <td data-label="Descrição" style="min-width: 250px; max-width: 450px;"><div class="cell-content">{desc_p}</div></td>
-                                <td data-label="Resolução" style="min-width: 180px;"><div class="cell-content">{resolucao_html}</div></td>
+                                <td style="white-space: nowrap !important;">{row.get('Data_Exibicao','')}</td>
+                                <td>{row.get('Hora_Exibicao','')}</td>
+                                <td>{row.get('Funcionário','')}</td>
+                                <td>{row.get('Setor','')}</td>
+                                <td>{row.get('Equipamento','')}</td>
+                                <td>{row.get('Status','')}</td>
+                                <td>{row.get('Falhas','')}</td>
+                                <td style="min-width: 250px; max-width: 400px;">{desc_p}</td>
+                                <td style="min-width: 180px;">{resolucao_html}</td>
                             </tr>
                     """
                 html_tabela += "</tbody></table></div>"
-                st.components.v1.html(html_tabela, height=540, scrolling=True)
+                
+                # Renderiza a tabela HTML exatamente no formato original
+                st.components.v1.html(html_tabela, height=510, scrolling=False)
             else:
                 st.info("Nenhum registro encontrado para os filtros selecionados.")
 
