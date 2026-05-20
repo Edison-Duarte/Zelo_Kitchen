@@ -32,14 +32,10 @@ except Exception as e:
 def carregar_dados():
     try:
         df = conn.read(ttl=0)
-        # 1. Limpeza: Remove colunas "fantasmas" (Unnamed)
+        # Limpeza: Remove colunas "fantasmas" (Unnamed)
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         
-        # Garante que a coluna de controle exista na planilha
-        if "Resolução" not in df.columns:
-            df["Resolução"] = ""
-            
-        # Cria um identificador com o índice real da planilha para atualizar a linha correta
+        # Mapeia o índice real da linha para fazer a alteração correta no Sheets
         df["original_index"] = df.index
         
         if not df.empty and "Data/Hora" in df.columns:
@@ -182,7 +178,7 @@ with tab2:
         
         if tipo_visao == "🔴 Apenas Pendentes":
             st.subheader("🚨 Lista de Pendências em Aberto")
-            st.caption("Marque a caixinha na coluna **'Solucionar'** e clique no botão abaixo para dar baixa e retirá-lo da lista.")
+            st.caption("Marque a caixinha na coluna **'Solucionar'** e clique no botão abaixo para dar baixa e retirá-lo desta lista.")
             
             if not df_filtrado.empty:
                 # Adiciona coluna temporária de checkbox na primeira posição
@@ -211,14 +207,10 @@ with tab2:
                         with st.spinner("Atualizando registros..."):
                             data_solucao = obter_agora_br().strftime("%d/%m/%Y %H:%M")
                             
-                            # Busca o dataframe bruto da planilha para evitar conflitos de tipo
                             df_sheets = conn.read(ttl=0)
                             df_sheets = df_sheets.loc[:, ~df_sheets.columns.str.contains('^Unnamed')]
                             
-                            if "Resolução" not in df_sheets.columns:
-                                df_sheets["Resolução"] = ""
-                            
-                            # Grava a resolução usando a referência direta e segura de índice
+                            # Grava o texto de solução diretamente no índice correspondente da planilha
                             for _, row in itens_marcados.iterrows():
                                 idx_alvo = int(row["original_index"])
                                 df_sheets.loc[idx_alvo, "Resolução"] = f"Solucionado em {data_solucao}"
@@ -232,7 +224,7 @@ with tab2:
                 st.info("Nenhuma pendência em aberto para os filtros selecionados.")
                 
         else:
-            # Visão apenas de leitura para Solucionados ou Todos os registros
+            # Visão de histórico (Somente Leitura) para Solucionados ou Todos
             st.subheader("📋 Histórico Geral")
             if not df_filtrado.empty:
                 st.dataframe(
