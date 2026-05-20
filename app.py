@@ -5,12 +5,11 @@ from datetime import datetime
 import pytz
 import urllib.parse
 from fpdf import FPDF
-import io
 
 # --- CONFIGURAÇÕES DA PÁGINA ---
 st.set_page_config(page_title="Zelo Kitchen - Inspeção", page_icon="🍳", layout="wide")
 
-# CSS para interface geral e botões
+# CSS para interface geral e botões do Streamlit
 st.markdown("""
     <style>
         .main { background-color: #f9f9f9; }
@@ -32,13 +31,9 @@ except Exception as e:
 def carregar_dados():
     try:
         df = conn.read(ttl=0)
-        # Limpeza: Remove colunas "fantasmas"
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-        
-        # Mapeia o índice real da linha para fazer a alteração correta no Sheets
         df["original_index"] = df.index
         
-        # Garante que a coluna de controle seja tratada como texto limpo
         if "Resolução" in df.columns:
             df["Resolução"] = df["Resolução"].fillna("").astype(str).str.strip()
         else:
@@ -53,8 +48,7 @@ def carregar_dados():
             df["Hora_Exibicao"] = ""
         
         colunas_desejadas = ["Data_Exibicao", "Hora_Exibicao", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema", "Resolução", "original_index"]
-        df_limpo = df[[c for c in colunas_desejadas if c in df.columns]]
-        return df_limpo
+        return df[[c for c in colunas_desejadas if c in df.columns]]
     except Exception as e:
         return pd.DataFrame(columns=["Data_Exibicao", "Hora_Exibicao", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema", "Resolução", "original_index"])
 
@@ -133,8 +127,7 @@ with tab1:
                         for r in respostas:
                             f_list = [n for n, v in zip(["Higiene", "Funcionamento", "Estado"], [r["H"], r["F"], r["E"]]) if v == "NÃO"]
                             novas_entradas.append({
-                                "Data": "", 
-                                "Funcionário": nome_inspetor, "Setor": setor_selecionado,
+                                "Data": "", "Funcionário": nome_inspetor, "Setor": setor_selecionado,
                                 "Equipamentos": "", "Status": "❌ FALHA" if f_list else "✅ OK",
                                 "Falha": "", "Data_Obj": "", "Data/Hora": agora, 
                                 "Equipamento": r["Equipamento"], "Falhas": ", ".join(f_list) if f_list else "Nenhuma", 
@@ -169,7 +162,6 @@ with tab2:
             d_ini = col_d1.date_input("Início", value=data_min)
             d_fim = col_d2.date_input("Fim", value=data_max)
 
-        # Aplicação dos filtros de dados
         mask = (df_hist["dt_temp"] >= d_ini) & (df_hist["dt_temp"] <= d_fim) & \
                (df_hist["Setor"].isin(f_set)) & (df_hist["Status"].isin(f_sta))
         
@@ -181,104 +173,86 @@ with tab2:
         df_filtrado = df_hist[mask].drop(columns=["dt_temp"]).sort_values(by=["Data_Exibicao", "Hora_Exibicao"], ascending=False)
 
         st.markdown("---")
+        st.subheader(f"📋 {tipo_visao}")
         
-        # MODO INTERATIVO (Apenas para dar baixa nas Pendências)
-        if tipo_visao == "🔴 Apenas Pendentes":
-            st.subheader("🚨 Lista de Pendências em Aberto")
-            st.caption("Marque a caixinha na coluna **'Solucionar'** e clique no botão abaixo para dar baixa no problema.")
-            
-            if not df_filtrado.empty:
-                df_filtrado.insert(0, "Solucionar", False)
+        if not df_filtrado.empty:
+            # GERAÇÃO DA TABELA VISUAL CUSTOMIZADA (HTML + BOOTSTRAP)
+            html_tabela = """
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
+            <style>
+                body { background-color: transparent !important; font-family: sans-serif; }
+                th { background-color: #2c3e50 !important; color: white !important; font-size: 14px; position: sticky; top: 0; padding: 12px 10px !important; text-align: left; }
+                td { font-size: 13px; vertical-align: middle; word-break: break-word !important; white-space: normal !important; padding: 10px 8px !important; }
+                .table-container { max-height: 480px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; }
+                .badge-pendente { background-color: #6c757d; color: white; padding: 6px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; }
+                .badge-resolvido { background-color: #198754; color: white; padding: 6px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; }
+            </style>
+            <div class="table-container">
+                <table class="table table-striped table-hover m-0">
+                    <thead>
+                        <tr>
+                            <th>Data</th><th>Hora</th><th>Funcionário</th><th>Setor</th><th>Equipamento</th><th>Status</th><th>Falhas</th><th>Descrição do Problema</th><th>Ação / Resolução</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            """
+            for _, row in df_filtrado.iterrows():
+                desc_p = str(row.get('Descrição do Problema', '')) if pd.notna(row.get('Descrição do Problema')) else ""
+                resolucao_p = str(row.get('Resolução', '')) if pd.notna(row.get('Resolução')) else ""
+                idx_original = row.get('original_index')
                 
-                df_editado = st.data_editor(
-                    df_filtrado,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Solucionar": st.column_config.CheckboxColumn("Solucionar", default=False),
-                        "Data_Exibicao": st.column_config.TextColumn("Data", width="small"),
-                        "Hora_Exibicao": st.column_config.TextColumn("Hora", width="small"),
-                        "Descrição do Problema": st.column_config.TextColumn("Descrição do Problema", width="large"),
-                        "Resolução": None,
-                        "original_index": None
-                    },
-                    disabled=["Data_Exibicao", "Hora_Exibicao", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema"]
-                )
-                
-                if st.button("✓ CONFIRMAR SOLUÇÃO DOS ITENS SELECIONADOS", type="primary"):
-                    itens_marcados = df_editado[df_editado["Solucionar"] == True]
-                    
-                    if not itens_marcados.empty:
-                        with st.spinner("Atualizando registros no Google Sheets..."):
-                            data_solucao = obter_agora_br().strftime("%d/%m/%Y %H:%M")
-                            
-                            df_sheets = conn.read(ttl=0)
-                            df_sheets = df_sheets.loc[:, ~df_sheets.columns.str.contains('^Unnamed')]
-                            df_sheets["Resolução"] = df_sheets["Resolução"].fillna("").astype(str)
-                            
-                            for _, row in itens_marcados.iterrows():
-                                idx_alvo = int(row["original_index"])
-                                df_sheets.loc[idx_alvo, "Resolução"] = f"Solucionado em {data_solucao}"
-                            
-                            conn.update(data=df_sheets)
-                            st.success("🎉 Item(ns) solucionado(s) com sucesso!")
-                            st.rerun()
-                    else:
-                        st.warning("Nenhum item marcado. Selecione ao menos uma caixinha.")
-            else:
-                st.info("Nenhuma pendência em aberto para os filtros selecionados.")
-                
-        # MODO HISTÓRICO ORIGINAL (Visualização em HTML com Títulos Escuros e Quebra de Linha Total)
-        else:
-            st.subheader(f"📋 {tipo_visao}")
-            
-            if not df_filtrado.empty:
-                html_tabela = """
-                <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
-                <style>
-                    body { background-color: transparent !important; font-family: sans-serif; }
-                    th { background-color: #2c3e50 !important; color: white !important; font-size: 14px; position: sticky; top: 0; padding: 10px !important; }
-                    td { font-size: 13px; vertical-align: middle; word-break: break-word !important; white-space: normal !important; padding: 8px !important; }
-                    .table-container { max-height: 500px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; }
-                </style>
-                <div class="table-container">
-                    <table class="table table-striped table-hover m-0">
-                        <thead>
-                            <tr>
-                                <th>Data</th><th>Hora</th><th>Funcionário</th><th>Setor</th><th>Equipamento</th><th>Status</th><th>Falhas</th><th>Descrição do Problema</th><th>Histórico de Resolução</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                """
-                for _, row in df_filtrado.iterrows():
-                    desc_p = str(row.get('Descrição do Problema', '')) if pd.notna(row.get('Descrição do Problema')) else ""
-                    resolucao_p = str(row.get('Resolução', '')) if pd.notna(row.get('Resolução')) else ""
-                    
-                    # Formata badges verdes para itens resolvidos visualmente na tabela
-                    if resolucao_p:
-                        resolucao_html = f"<span class='badge bg-success' style='font-size:11px; padding:6px;'>{resolucao_p}</span>"
-                    else:
-                        resolucao_html = "<span class='badge bg-secondary' style='font-size:11px; padding:6px;'>Pendente</span>"
+                # Define o que vai aparecer na última coluna baseado no status
+                if resolucao_p:
+                    acao_html = f"<span class='badge-resolvido'>✓ {resolucao_p}</span>"
+                else:
+                    # Se estiver pendente, cria um link falso estilizado como o botão clássico de "Solucionado"
+                    acao_html = f"<span class='badge-pendente'>🔴 Pendente</span>"
 
-                    html_tabela += f"""
-                            <tr>
-                                <td style="white-space: nowrap !important;">{row.get('Data_Exibicao','')}</td>
-                                <td>{row.get('Hora_Exibicao','')}</td>
-                                <td>{row.get('Funcionário','')}</td>
-                                <td>{row.get('Setor','')}</td>
-                                <td>{row.get('Equipamento','')}</td>
-                                <td>{row.get('Status','')}</td>
-                                <td>{row.get('Falhas','')}</td>
-                                <td style="min-width: 250px; max-width: 400px;">{desc_p}</td>
-                                <td style="min-width: 180px;">{resolucao_html}</td>
-                            </tr>
-                    """
-                html_tabela += "</tbody></table></div>"
+                html_tabela += f"""
+                        <tr>
+                            <td style="white-space: nowrap !important;">{row.get('Data_Exibicao','')}</td>
+                            <td>{row.get('Hora_Exibicao','')}</td>
+                            <td>{row.get('Funcionário','')}</td>
+                            <td>{row.get('Setor','')}</td>
+                            <td>{row.get('Equipamento','')}</td>
+                            <td>{row.get('Status','')}</td>
+                            <td>{row.get('Falhas','')}</td>
+                            <td style="min-width: 250px; max-width: 450px;">{desc_p}</td>
+                            <td style="min-width: 160px;">{acao_html}</td>
+                        </tr>
+                """
+            html_tabela += "</tbody></table></div>"
+            
+            # Exibe a tabela com o cabeçalho escuro e quebra automática
+            st.components.v1.html(html_tabela, height=500, scrolling=False)
+            
+            # FORMULÁRIO DE BAIXA EXCLUSIVO (Aparece logo abaixo quando filtrado em Pendentes)
+            if tipo_visao == "🔴 Apenas Pendentes":
+                st.markdown("### 🛠️ Dar baixa em uma pendência")
+                lista_opcoes_pendentes = {
+                    f"{r['Data_Exibicao']} {r['Hora_Exibicao']} - {r['Equipamento']} ({r['Setor']})": r['original_index']
+                    for _, r in df_filtrado.iterrows()
+                }
                 
-                # Renderiza a tabela HTML exatamente no formato original
-                st.components.v1.html(html_tabela, height=510, scrolling=False)
-            else:
-                st.info("Nenhum registro encontrado para os filtros selecionados.")
+                col_bx1, col_bx2 = st.columns([3, 1])
+                item_para_resolver = col_bx1.selectbox("Selecione qual item foi consertado:", options=list(lista_opcoes_pendentes.keys()))
+                
+                if col_bx2.button("✓ MARCAR COMO SOLUCIONADO", type="primary", use_container_width=True):
+                    idx_alvo = int(lista_opcoes_pendentes[item_para_resolver])
+                    with st.spinner("Atualizando cadastro na planilha..."):
+                        data_solucao = obter_agora_br().strftime("%d/%m/%Y %H:%M")
+                        
+                        df_sheets = conn.read(ttl=0)
+                        df_sheets = df_sheets.loc[:, ~df_sheets.columns.str.contains('^Unnamed')]
+                        df_sheets["Resolução"] = df_sheets["Resolução"].fillna("").astype(str)
+                        
+                        df_sheets.loc[idx_alvo, "Resolução"] = f"Solucionado em {data_solucao}"
+                        
+                        conn.update(data=df_sheets)
+                        st.success("🎉 Registro atualizado com sucesso!")
+                        st.rerun()
+        else:
+            st.info("Nenhum registro encontrado para os filtros selecionados.")
 
         # --- SEÇÃO DE RELATÓRIO ---
         st.divider()
@@ -286,7 +260,7 @@ with tab2:
         st.info("💡 **Aviso:** O relatório enviado será baseado exclusivamente no conteúdo **filtrado** na tabela acima.")
         
         if not df_filtrado.empty:
-            df_enviar = df_filtrado.drop(columns=["Solucionar"]) if "Solucionar" in df_filtrado.columns else df_filtrado
+            df_enviar = df_filtrado.copy()
             if "original_index" in df_enviar.columns:
                 df_enviar = df_enviar.drop(columns=["original_index"])
                 
