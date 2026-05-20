@@ -10,7 +10,7 @@ import io
 # --- CONFIGURAÇÕES DA PÁGINA ---
 st.set_page_config(page_title="Zelo Kitchen - Inspeção", page_icon="🍳", layout="wide")
 
-# CSS para interface geral, botões e detecção/ajuste de visualização mobile
+# CSS para interface geral, botões e estilização dos cards mobile
 st.markdown("""
     <style>
         .main { background-color: #f9f9f9; }
@@ -49,6 +49,25 @@ st.markdown("""
         }
     </style>
 """, unsafe_allow_html=True)
+
+# --- DETECTOR AUTOMÁTICO DE DISPOSITIVO (MOBILE VS PC) ---
+# Injeta um componente JS invisível para ler a largura da tela
+janela_info = st.components.v1.html(
+    """
+    <script>
+        const largura = window.parent.innerWidth;
+        // Se a tela for menor que 768px, define como mobile
+        const ehMobile = largura < 768; 
+        window.parent.postMessage({type: 'streamlit:setComponentValue', value: ehMobile}, '*');
+    </script>
+    """,
+    height=0,
+)
+
+# Captura a resposta do script. Se falhar ou estiver carregando, assume False (PC) por segurança
+eh_dispositivo_mobile = st.session_state.get("eh_mobile_detectado", False)
+if janela_info:
+    eh_dispositivo_mobile = janela_info
 
 fuso_br = pytz.timezone('America/Sao_Paulo')
 def obter_agora_br():
@@ -214,13 +233,13 @@ with tab2:
             st.subheader("🚨 Lista de Pendências em Aberto")
             
             if not df_filtrado.empty:
-                # Seletor para alternar modo de exibição caso o usuário prefira forçar o modo tabela
-                modo_exibicao = st.radio("Formato de exibição:", ["Layout Mobile (Cards)", "Tabela Completa (PC)"], horizontal=True, label_visibility="collapsed")
                 
-                if modo_exibicao == "Layout Mobile (Cards)":
+                # EXECUÇÃO DO LAYOUT RESPONSIVO AUTOMÁTICO
+                if eh_dispositivo_mobile:
+                    # --- LAYOUT EXCLUSIVO PARA CELULAR (CARDS) ---
                     st.caption("Selecione abaixo os equipamentos que deseja solucionar e confirme no botão vermelho:")
                     
-                    # Cria opções amigáveis para o Mobile Select baseadas no índice original
+                    # Cria as opções para o Multiselect baseado no index original
                     opcoes_fáceis = {}
                     for _, r in df_filtrado.iterrows():
                         label_item = f"⚠️ {r['Equipamento']} ({r['Setor']}) - {r['Data_Exibicao']}"
@@ -228,7 +247,7 @@ with tab2:
                     
                     itens_selecionados_mobile = st.multiselect("Toque para escolher um ou mais itens corrigidos:", options=list(opcoes_fáceis.keys()))
                     
-                    # Renderiza os blocos visuais das pendências em HTML limpo (sem risco de cortes)
+                    # Renderiza visualmente os blocos em HTML limpo para leitura confortável no mobile
                     for _, r in df_filtrado.iterrows():
                         desc_limpa = r['Descrição do Problema'] if pd.notna(r['Descrição do Problema']) and r['Descrição do Problema'] != "" else "Sem descrição registrada."
                         card_html = f"""
@@ -240,7 +259,7 @@ with tab2:
                         """
                         st.markdown(card_html, unsafe_allow_html=True)
                         
-                    # Botão de confirmação para o modo Mobile
+                    # Botão de confirmação exclusivo do celular
                     if st.button("✓ CONFIRMAR SOLUÇÃO DOS ITENS SELECIONADOS", type="primary", key="btn_mob"):
                         if itens_selecionados_mobile:
                             with st.spinner("Atualizando registros no Google Sheets..."):
@@ -260,7 +279,7 @@ with tab2:
                             st.warning("Nenhum item selecionado no campo de escolha acima.")
                             
                 else:
-                    # Fallback para o modo tabela clássico (Caso queira usar no PC)
+                    # --- LAYOUT ORIGINAL DO COMPUTADOR (TABELA ORIGINAL COMPLETA) ---
                     st.caption("Marque a caixinha na coluna **'Solucionar'** e clique no botão abaixo para dar baixa.")
                     df_filtrado.insert(0, "Solucionar", False)
                     df_editado = st.data_editor(
@@ -278,6 +297,7 @@ with tab2:
                         disabled=["Data_Exibicao", "Hora_Exibicao", "Funcionário", "Setor", "Equipamento", "Status", "Falhas", "Descrição do Problema"]
                     )
                     
+                    # Botão de confirmação original do Computador
                     if st.button("✓ CONFIRMAR SOLUÇÃO DOS ITENS SELECIONADOS", type="primary", key="btn_pc"):
                         itens_marcados = df_editado[df_editado["Solucionar"] == True]
                         if not itens_marcados.empty:
@@ -299,7 +319,7 @@ with tab2:
             else:
                 st.info("Nenhuma pendência em aberto para os filtros selecionados.")
                 
-        # MODO HISTÓRICO ORIGINAL COM DESIGN RESPONSIVO (TABELA -> CARDS AUTOMÁTICO)
+        # HISTÓRICO ORIGINAL GERAL 
         else:
             st.subheader(f"📋 {tipo_visao}")
             
