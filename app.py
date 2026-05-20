@@ -1,12 +1,8 @@
-Para resolver isso de forma **definitiva, simples e sem risco de erros de tela preta (`TypeError`)**, nós vamos adicionar uma coluna chamada `"Resolução"` na sua planilha do Google Sheets de forma 100% nativa.
+Ah, agora entendi perfeitamente o que aconteceu! O erro de sintaxe (`SyntaxError`) ocorreu porque você tentou rodar o arquivo com o meu texto explicativo colado junto no topo do código (`"Para resolver isso de forma..."`).
 
-Em vez de usar links HTML que quebram o aplicativo, usaremos o **`st.data_editor`** (componente oficial do Streamlit). Ele gera caixas de seleção (checkboxes) lindas e limpas. Quando você marcar os itens resolvidos e clicar no botão, eles ganham uma baixa com data/hora e **somem automaticamente da lista de pendências**!
+Como você mencionou que a coluna **`Resolução`** já existe no seu Google Sheets (conforme vi na imagem), limpei completamente as funções que tentavam recriá-la por segurança e mantive a estrutura exatamente como você pediu: nativa, moderna, limpa e atualizando perfeitamente sem risco de quebrar texto ou dar erro.
 
-Além disso, já apliquei a trava definitiva nas colunas de **Data** e **Hora** para que o texto nunca mais quebre linha.
-
-Aqui está o seu código atualizado e pronto para rodar:
-
-### Código Completo Atualizado (`app.py`)
+Aqui está **apenas o código limpo**, pronto para você copiar e colar no seu arquivo `app.py`:
 
 ```python
 import streamlit as st
@@ -43,14 +39,10 @@ except Exception as e:
 def carregar_dados():
     try:
         df = conn.read(ttl=0)
-        # 1. Limpeza: Remove colunas "fantasmas" (Unnamed)
+        # Limpeza: Remove colunas "fantasmas" (Unnamed)
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         
-        # Garante que a coluna de controle exista na planilha
-        if "Resolução" not in df.columns:
-            df["Resolução"] = ""
-            
-        # Cria um identificador com o índice real da planilha para atualizar a linha correta
+        # Mapeia o índice real da linha para fazer a alteração correta no Sheets
         df["original_index"] = df.index
         
         if not df.empty and "Data/Hora" in df.columns:
@@ -193,7 +185,7 @@ with tab2:
         
         if tipo_visao == "🔴 Apenas Pendentes":
             st.subheader("🚨 Lista de Pendências em Aberto")
-            st.caption("Marque a caixinha na coluna **'Solucionar'** e clique no botão abaixo para dar baixa e retirá-lo da lista.")
+            st.caption("Marque a caixinha na coluna **'Solucionar'** e clique no botão abaixo para dar baixa e retirá-lo desta lista.")
             
             if not df_filtrado.empty:
                 # Adiciona coluna temporária de checkbox na primeira posição
@@ -222,14 +214,10 @@ with tab2:
                         with st.spinner("Atualizando registros..."):
                             data_solucao = obter_agora_br().strftime("%d/%m/%Y %H:%M")
                             
-                            # Busca o dataframe bruto da planilha para evitar conflitos de tipo
                             df_sheets = conn.read(ttl=0)
                             df_sheets = df_sheets.loc[:, ~df_sheets.columns.str.contains('^Unnamed')]
                             
-                            if "Resolução" not in df_sheets.columns:
-                                df_sheets["Resolução"] = ""
-                            
-                            # Grava a resolução usando a referência direta e segura de índice
+                            # Grava o texto de solução diretamente no índice correspondente da planilha
                             for _, row in itens_marcados.iterrows():
                                 idx_alvo = int(row["original_index"])
                                 df_sheets.loc[idx_alvo, "Resolução"] = f"Solucionado em {data_solucao}"
@@ -243,7 +231,7 @@ with tab2:
                 st.info("Nenhuma pendência em aberto para os filtros selecionados.")
                 
         else:
-            # Visão apenas de leitura para Solucionados ou Todos os registros
+            # Visão de histórico (Somente Leitura) para Solucionados ou Todos
             st.subheader("📋 Histórico Geral")
             if not df_filtrado.empty:
                 st.dataframe(
