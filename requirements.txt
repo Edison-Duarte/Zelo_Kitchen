@@ -2,3 +2,4 @@ st-gsheets-connection
 pytz
 pandas
 fpdf
+starlette<0.40.0
